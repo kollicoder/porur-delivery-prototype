@@ -10,7 +10,16 @@ const CATS = [
   { id:'med', label:'Medicines', ta:'மருந்துகள்', emoji:'💊', color:'#e3eeff' },
   { id:'rider', label:'Book a Rider', ta:'ரைடர் புக்', emoji:'🛵', color:'#ffe4e4' },
 ];
-const readHash = () => { const [, role='customer', screen='home', arg=''] = location.hash.split('/'); return { role, screen, arg }; };
+const ROLES = ['customer','rider','admin','admin-desktop'];
+const readHash = () => {
+  const [, role, screen, arg] = location.hash.replace(/^#/, '').split('/');
+  if (!ROLES.includes(role)) {
+    // Unknown or empty route: wide screens get the desktop admin, phones get the customer app
+    const wide = window.matchMedia && window.matchMedia('(min-width: 1024px)').matches;
+    return wide ? { role:'admin-desktop', screen:'overview', arg:'' } : { role:'customer', screen:'home', arg:'' };
+  }
+  return { role, screen: screen || (role==='admin-desktop' ? 'overview' : 'home'), arg: arg || '' };
+};
 
 export default function App() {
   const [route, setRoute] = useState(readHash());
