@@ -3,10 +3,11 @@ import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, PieChart, Pi
 import { STORES, PRODUCTS, SETTINGS } from './data.js';
 import { STEPS, DONE } from './store.js';
 import { api, backendInfo } from './live.js';
+import LiveMap, { HUB } from './map.jsx';
 import './desktop.css';
 
 const rs = n => '₹' + Math.round(n).toLocaleString('en-IN');
-const NAV = [['overview','📊','Overview'],['orders','📦','Live Orders'],['riders','🛵','Riders'],['stores','🏪','Stores / Vendors'],['customers','👥','Customers'],['errands','📝','Errands'],['payments','💳','Payments'],['reports','📈','Reports'],['settings','⚙️','Settings']];
+const NAV = [['overview','📊','Overview'],['orders','📦','Live Orders'],['riders','🛵','Riders'],['stores','🏪','Stores / Vendors'],['customers','👥','Customers'],['errands','📝','Errands'],['payments','💳','Payments'],['reports','📈','Reports'],['users','🔑','Users & Access'],['settings','⚙️','Settings']];
 const HOURS = [3,1,0,1,2,5,9,12,8,6,7,9,6,4,5,8,11,14,12,9,6,4].map((v,i)=>({ h:`${(i+2)%24}:00`, orders:v }));
 const COLORS = ['#16a34a','#f59e0b','#3b82f6','#ef4444'];
 const SHIFTS = ['6AM–2PM','2PM–10PM','10PM–6AM'];
@@ -24,7 +25,7 @@ export default function AdminDesktop(ctx) {
   const stock = Object.fromEntries(PRODUCTS.map(p=>[p.id, p.inStock!==false])); const setStock = fn => { const n = fn(stock); for (const k in n) if (n[k]!==stock[k]) api.updateProduct(k, { inStock: n[k] }); };
   const rx = Object.fromEntries(ctx.orders.filter(o=>o.rxStatus && o.rxStatus!=='pending').map(o=>[o.id,o.rxStatus]));
   const setRx = fn => { const n = fn(rx); for (const k in n) if (n[k]!==rx[k]) api.updateOrder(k, { rxStatus: n[k], ...(n[k]==='rejected'?{status:'rejected'}:{}) }); };
-  const P = { overview:Overview, orders:Orders, riders:Riders, stores:Stores, customers:Customers, errands:Errands, payments:Payments, reports:Reports, settings:Settings }[page] || Overview;
+  const P = { overview:Overview, orders:Orders, riders:Riders, stores:Stores, customers:Customers, errands:Errands, payments:Payments, reports:Reports, users:Users, settings:Settings }[page] || Overview;
   const x = { ...ctx, q, settings, setSettings, stock, setStock, rx, setRx };
   const pendingRx = ctx.orders.filter(o => o.items.some(([n])=>PRODUCTS.find(p=>p.name===n)?.rx) && o.rxStatus==='pending').length;
   return (<div className="dk">
@@ -72,19 +73,18 @@ function Overview({ orders, riders, rx, go }) {
       <div className="panel"><h3>Category mix</h3><ResponsiveContainer width="100%" height={240}><PieChart><Pie data={mix} dataKey="value" nameKey="name" innerRadius={55} outerRadius={90} label>{mix.map((_,i)=><Cell key={i} fill={COLORS[i]}/>)}</Pie><Legend/><Tooltip/></PieChart></ResponsiveContainer></div>
     </div>
     <div className="grid2">
-      <div className="panel"><h3>Live map · Porur zone (3–5 km) <small className="muted">placeholder</small></h3><ZoneMap riders={riders}/></div>
+      <div className="panel"><h3>Live map · Porur zone (3–5 km) <small className="muted">OpenStreetMap · rider GPS</small></h3><ZoneMap riders={riders} orders={orders}/></div>
       <div className="panel"><h3>Recent orders</h3><OrderTable orders={orders.slice(0,7)} riders={riders}/></div>
     </div>
   </>);
 }
-function ZoneMap({ riders }) {
-  const pos = [[48,40],[62,55],[40,62],[30,35],[70,30],[55,70],[35,48],[66,42],[45,25],[25,65]];
-  return (<div className="zmap">
-    <div className="ring r5"><span>5 km</span></div><div className="ring r3"><span>3 km</span></div>
-    <div className="hub">🏠<small>Porur hub</small></div>
-    {['Ramapuram','Valasaravakkam','Iyyappanthangal','Mangadu','Gerugambakkam'].map((a,i)=><small key={a} className="area" style={{left:[70,72,12,8,40][i]+'%',top:[12,62,40,75,88][i]+'%'}}>{a}</small>)}
-    {riders.filter(r=>r.status!=='offline').map((r,i)=><span key={r.id} className={'rpin '+r.status} style={{left:pos[i][0]+'%',top:pos[i][1]+'%'}} title={r.name}>🛵<small>{r.name}</small></span>)}
-  </div>);
+function ZoneMap({ riders, orders }) {
+  return <LiveMap testId="admin-map" height={300} rings fit={false} zoom={13} markers={[
+    { lat: HUB.lat, lng: HUB.lng, emoji: '🏠', label: 'Hub' },
+    ...STORES.map(s => ({ lat: s.lat, lng: s.lng, emoji: '🏪', label: s.name.split(' ')[0] })),
+    ...riders.filter(r => r.status !== 'offline' && r.lat).map(r => ({ lat: r.lat, lng: r.lng, emoji: '🛵', label: r.name })),
+    ...orders.filter(o => o.status >= 0 && o.status < DONE && o.dropLat).map(o => ({ lat: o.dropLat, lng: o.dropLng, emoji: '📍', label: o.id })),
+  ]} />;
 }
 function OrderTable({ orders, riders, onOpen }) {
   return <table className="dt"><thead><tr><th>ID</th><th>Time</th><th>Customer</th><th>Type</th><th>Total</th><th>Pay</th><th>Rider</th><th>Status</th></tr></thead><tbody>
@@ -211,4 +211,34 @@ function Settings({ settings, setSettings }) {
         <div className="stock"><span>Night: medicines only</span><button className={'tog '+(settings.nightMedOnly?'on':'')} onClick={()=>set('nightMedOnly',!settings.nightMedOnly)}>{settings.nightMedOnly?'On':'Off'}</button></div></div>
     </div>
     <p className="muted small">Saved to the backend (settings/app) and applied live in the customer apps (web + native).</p></>);
+}
+
+function Users({ users, riders, me }) {
+  const [filter, setFilter] = useState('');
+  const pending = users.filter(u => u.request);
+  const roleOf = u => u.role || 'customer';
+  const setRole = (u, role) => { if (role === 'vendor') api.setUserRole(u.uid, 'vendor', { storeId: u.storeId || u.request?.storeId || 's1' });
+    else if (role === 'rider') api.setUserRole(u.uid, 'rider', { riderId: u.riderId || u.request?.riderId || 'r1' });
+    else api.setUserRole(u.uid, role === 'customer' ? null : role); };
+  return (<>
+    <h1>Users & Access</h1>
+    <p className="muted">Everyone signs in with phone OTP. New users are customers; vendors, riders and admins are approved here. Users cannot change their own role (enforced by Firestore rules).</p>
+    <div className="panel rxq"><h3>🔔 Access requests ({pending.length})</h3>
+      {!pending.length && <p className="muted">No pending requests.</p>}
+      {pending.map(u => <div key={u.uid} className="rxrow" data-testid={'req-' + u.phone}><b>{u.name || '—'}</b><span>{u.phone}</span>
+        <span>wants <b>{u.request.role}</b> {u.request.storeId ? '· ' + (STORES.find(s => s.id === u.request.storeId)?.name || u.request.storeId) : ''}{u.request.riderId ? '· ' + (riders.find(r => r.id === u.request.riderId)?.name || u.request.riderId) : ''}</span>
+        <span className="muted small">{new Date(u.request.at).toLocaleString('en-IN')}</span>
+        <button className="ok" data-testid={'approve-' + u.phone} onClick={() => api.setUserRole(u.uid, u.request.role, { storeId: u.request.storeId, riderId: u.request.riderId })}>Approve</button>
+        <button className="no" onClick={() => api.rejectRequest(u.uid)}>Reject</button></div>)}
+    </div>
+    <div className="panel"><div className="row"><h3>All users ({users.length})</h3><input placeholder="Filter by phone/name" value={filter} onChange={e => setFilter(e.target.value)} style={{ border: '1px solid #cbd5e1', borderRadius: 8, padding: 6 }} /></div>
+      <table className="dt"><thead><tr><th>Phone</th><th>Name</th><th>Role</th><th>Store / Rider</th><th>Joined</th></tr></thead><tbody>
+        {users.filter(u => !filter || (u.phone + ' ' + (u.name || '')).includes(filter)).map(u => <tr key={u.uid}><td>{u.phone}{u.uid === me?.uid ? ' (you)' : ''}</td><td>{u.name || '—'}</td>
+          <td><select value={roleOf(u)} onChange={e => setRole(u, e.target.value)}>{['customer', 'vendor', 'rider', 'admin'].map(r => <option key={r}>{r}</option>)}</select></td>
+          <td>{u.role === 'vendor' ? <select value={u.storeId} onChange={e => api.setUserRole(u.uid, 'vendor', { storeId: e.target.value })}>{STORES.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
+            : u.role === 'rider' ? <select value={u.riderId} onChange={e => api.setUserRole(u.uid, 'rider', { riderId: e.target.value })}>{riders.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</select> : '—'}</td>
+          <td className="muted">{u.createdAt ? new Date(u.createdAt).toLocaleDateString('en-IN') : ''}</td></tr>)}
+      </tbody></table>
+      <p className="muted small">Bootstrap admin: the owner's phone number is written into the deployed security rules, so it is always an admin even if this table is edited.</p></div>
+  </>);
 }

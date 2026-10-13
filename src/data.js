@@ -1,7 +1,7 @@
 export const STORES = [
-  { id: 's1', name: 'Porur Fresh Fruits & Veg', cat: 'fv', eta: '20-30 min', rating: 4.5, open: '5 AM – 11 PM' },
-  { id: 's2', name: 'Sri Murugan Supermarket', cat: 'grocery', eta: '25-35 min', rating: 4.3, open: '24 x 7 (via hub)' },
-  { id: 's3', name: 'Apollo-tieup Pharmacy, Porur', cat: 'med', eta: '20-30 min', rating: 4.7, open: '24 x 7' },
+  { id: 's1', name: 'Porur Fresh Fruits & Veg', cat: 'fv', eta: '20-30 min', rating: 4.5, open: '5 AM – 11 PM', lat: 13.0359, lng: 80.1574 },
+  { id: 's2', name: 'Sri Murugan Supermarket', cat: 'grocery', eta: '25-35 min', rating: 4.3, open: '24 x 7 (via hub)', lat: 13.0382, lng: 80.1617 },
+  { id: 's3', name: 'Porur Pharmacy (tie-up)', cat: 'med', eta: '20-30 min', rating: 4.7, open: '24 x 7', lat: 13.0331, lng: 80.1532 },
 ];
 export const PRODUCTS = [
   { id:'p1', store:'s1', cat:'fv', name:'Tomato', ta:'தக்காளி', unit:'kg', price:32, emoji:'🍅', kw:['tomato','thakkali','தக்காளி'] },

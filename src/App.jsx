@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { STORES, PRODUCTS, SETTINGS, deliveryFee, parseOrder } from './data.js';
-import { useLive, api, backendInfo, toProto } from './live.js';
+import { useLive, api, backendInfo, toProto, notifySupported } from './live.js';
+import LiveMap, { HUB } from './map.jsx';
+import { Login, RequestAccess } from './auth.jsx';
 import { useLS, STEPS, DONE } from './store.js';
 import AdminDesktop from './AdminDesktop.jsx';
 
@@ -27,22 +29,30 @@ export default function App() {
   useEffect(() => { const f = () => setRoute(readHash()); addEventListener('hashchange', f); return () => removeEventListener('hashchange', f); }, []);
   const go = (role, screen='home', arg='') => { location.hash = `#/${role}/${screen}${arg ? '/' + arg : ''}`; scrollTo(0,0); };
   const [cart, setCart] = useLS('pd_cart', {});
-  const role = { customer:'customer', rider:'rider' }[route.role] || 'admin';
-  const live = useLive(role);
+  const live = useLive();
   const ctx = { route, go, cart, setCart, ...live };
+  const [toast, setToast] = useState('');
+  useEffect(() => { const f = e => { setToast(e.detail); setTimeout(() => setToast(''), 5000); }; addEventListener('pd-toast', f); return () => removeEventListener('pd-toast', f); }, []);
+  const toastEl = toast ? <div className="toast" data-testid="toast">🔔 {toast}</div> : null;
+  if (live.user === undefined) return <div className="phone"><p className="muted" style={{padding:20}}>Loading…</p></div>;
+  if (!live.user) return <div className="phone"><Login title={route.role==='customer'?'Sign in':'Staff sign in'} /></div>;
+  const staffOk = route.role==='rider' ? (live.me?.role==='rider' || live.isAdmin) : ['admin','admin-desktop'].includes(route.role) ? live.isAdmin : true;
+  const gate = !staffOk && <RequestAccess me={live.me} role={route.role==='rider'?'rider':'admin'} riders={live.riders} />;
   const banner = live.error ? <div className="syncbar err">⚠️ Backend: {live.error}</div> : null;
-  if (route.role==='admin-desktop') return <>{banner}<AdminDesktop {...ctx} /></>;
+  if (route.role==='admin-desktop') return <>{banner}{toastEl}{gate ? <div className="phone">{gate}</div> : <AdminDesktop {...ctx} />}</>;
   return (
     <div className="phone">
       <div className="switcher">
         {['customer','rider','admin'].map(r => <button key={r} className={route.role===r?'on':''} onClick={()=>go(r)}>{r[0].toUpperCase()+r.slice(1)}</button>)}
         <button onClick={()=>go('admin-desktop','overview')}>Admin (Desktop)</button>
-        <button className="reset" title={'Live: '+backendInfo.projectId+(backendInfo.emulatorHost?' (emulator)':'')} onClick={()=>{localStorage.removeItem('pd_cart'); location.reload();}}>↺</button>
+        {notifySupported && Notification.permission==='default' && <button className="reset" title="Enable notifications" onClick={()=>Notification.requestPermission()}>🔔</button>}
+        <button className="reset" title={'Sign out · '+backendInfo.projectId+(backendInfo.emulatorHost?' (emulator)':'')} onClick={()=>api.logout()}>⎋</button>
       </div>
-      {banner}
-      {route.role==='customer' && <Customer {...ctx} />}
-      {route.role==='rider' && <Rider {...ctx} />}
-      {route.role==='admin' && <Admin {...ctx} />}
+      {banner}{toastEl}
+      {gate}
+      {!gate && route.role==='customer' && <Customer {...ctx} />}
+      {!gate && route.role==='rider' && <Rider {...ctx} />}
+      {!gate && route.role==='admin' && <Admin {...ctx} />}
     </div>
   );
 }
@@ -187,15 +197,18 @@ function Checkout(ctx) {
   const [rxFile, setRxFile] = useState(''); const [busy, setBusy] = useState(false);
   const hasMed = lines.some(l=>l.p.cat==='med');
   const [rxData, setRxData] = useState('');
+  const [loc, setLoc] = useState({ lat: HUB.lat + 0.012, lng: HUB.lng + 0.009 }); const [locMsg, setLocMsg] = useState('');
+  const useMyLoc = () => { setLocMsg('Locating…'); navigator.geolocation?.getCurrentPosition(p => { setLoc({ lat:p.coords.latitude, lng:p.coords.longitude }); setLocMsg('📍 Using your current location'); }, e => setLocMsg('Location unavailable ('+e.message+') — using the address pin')); };
   const place = async () => {
     setBusy(true);
     await new Promise(r=>setTimeout(r, pay==='UPI'?900:200)); // mock UPI
-    const ids = await api.placeOrder({ lines, fee, pay, address:addr, rxDataUrl: rxData });
+    const ids = await api.placeOrder({ lines, fee, pay, address:addr, rxDataUrl: rxData, name: ctx.name, dropLat: loc.lat, dropLng: loc.lng });
     setCart({}); go('customer','track',ids[0]);
   };
   if (!lines.length) return <div className="page"><Header title="Checkout" back={['cart']} go={go}/><p className="muted">Cart is empty.</p></div>;
   return (<div className="page"><Header title="Checkout" back={['cart']} go={go}/>
     <label className="lbl">Deliver to</label><textarea className="inp" rows={2} value={addr} onChange={e=>setAddr(e.target.value)}/>
+    <button className="chipbtn" onClick={useMyLoc}>📍 Use my current location</button> <small className="muted">{locMsg}</small>
     {hasMed && <div className="card"><b>📄 Prescription {rx ? '(required)' : '(optional)'}</b>
       <p className="muted small">Upload a photo. A licensed pharmacist will verify before dispatch. (Prototype: file is not uploaded anywhere.)</p>
       <input type="file" accept="image/*" onChange={e=>{ const f=e.target.files[0]; setRxFile(f?.name||''); if(f) shrink(f).then(setRxData); }}/>
@@ -209,6 +222,20 @@ function Checkout(ctx) {
 }
 // No Firebase Storage on the free plan: shrink the photo to ~600px JPEG and store it inline in the order
 function shrink(file) { return new Promise(res => { const img = new Image(); img.onload = () => { const w = Math.min(600, img.width), c = document.createElement('canvas'); c.width = w; c.height = img.height * w / img.width; c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); res(c.toDataURL('image/jpeg', 0.5)); }; img.onerror = () => res(''); img.src = URL.createObjectURL(file); }); }
+/** Rider GPS: real browser geolocation (watchPosition, throttled) or a simulated drive toward the active drop point. */
+function useRiderGps(rid) {
+  const [sharing, setSharing] = useState(false); const [status, setStatus] = useState('not sharing'); const watch = useRef(null), last = useRef(0), sim = useRef(null);
+  const push = (lat, lng, src) => { if (Date.now() - last.current < 3000) return; last.current = Date.now(); api.updateRider(rid, { lat, lng, locAt: new Date().toISOString() }).then(() => setStatus(`${src} · ${lat.toFixed(4)}, ${lng.toFixed(4)}`)).catch(e => setStatus('⚠️ ' + e.message)); };
+  const stop = () => { if (watch.current != null) navigator.geolocation.clearWatch(watch.current); watch.current = null; clearInterval(sim.current); setSharing(false); setStatus('not sharing'); };
+  const toggle = () => { if (sharing) return stop(); if (!navigator.geolocation) return setStatus('GPS not available');
+    setSharing(true); setStatus('waiting for GPS…');
+    watch.current = navigator.geolocation.watchPosition(p => push(p.coords.latitude, p.coords.longitude, 'GPS'), e => setStatus('⚠️ ' + e.message), { enableHighAccuracy: true, maximumAge: 5000 }); };
+  const simulate = (o) => { clearInterval(sim.current); const to = o?.dropLat ? { lat: o.dropLat, lng: o.dropLng } : { lat: HUB.lat + 0.015, lng: HUB.lng + 0.01 };
+    let lat = HUB.lat, lng = HUB.lng, n = 0; last.current = 0; push(lat, lng, 'simulated');
+    sim.current = setInterval(() => { n++; lat += (to.lat - lat) * 0.25; lng += (to.lng - lng) * 0.25; last.current = 0; push(lat, lng, 'simulated'); if (n > 10) clearInterval(sim.current); }, 3000); };
+  useEffect(() => stop, [rid]);
+  return { sharing, status, toggle, simulate };
+}
 function Track(ctx) {
   const { allOrders, go, route, riders, uid } = ctx;
   const mine = allOrders.filter(o=>o.customerUid===uid).map(toProto);
@@ -216,12 +243,12 @@ function Track(ctx) {
   if (!o) return <div className="page"><Header title="My orders" back={['home']} go={go}/><div className="empty">📦<p>No orders yet</p></div></div>;
   const r = riders.find(x=>x.id===o.rider);
   return (<div className="page"><Header title={`Order ${o.id}`} back={['home']} go={go}/>
-    <div className="map">
-      <div className="road h"/><div className="road v"/>
-      <span className="pin store">🏪</span><span className="pin home">🏠</span>
-      <span className="pin bike" style={{left: `${15+Math.max(0,o.status)*13}%`, top:`${70-Math.max(0,o.status)*10}%`}}>🛵</span>
-      <small className="maplbl">Map placeholder · Porur</small>
-    </div>
+    <LiveMap testId="track-map" markers={[
+      ...(o.storeId ? [STORES.find(x=>x.id===o.storeId)].filter(Boolean).map(st=>({lat:st.lat,lng:st.lng,emoji:'🏪',label:st.name.split(' ')[0]})) : []),
+      { lat:o.dropLat||HUB.lat+0.01, lng:o.dropLng||HUB.lng+0.01, emoji:'🏠', label:'You' },
+      ...(r && r.lat && o.status>=1 && o.status<DONE ? [{ lat:r.lat, lng:r.lng, emoji:'🛵', label:r.name }] : []),
+    ]} />
+    {r && r.locAt && o.status>=3 && o.status<DONE && <p className="muted small">🛰️ Rider location updated {Math.max(0,Math.round((Date.now()-new Date(r.locAt))/1000))}s ago</p>}
     <div className="card"><div className="eta">{o.status<0?'Order cancelled by store':o.status>=DONE?'Delivered 🎉':`Arriving in ~${Math.max(5,30-o.status*5)} min`}</div>
       {o.rxStatus && <p className="small">💊 Prescription: <b>{o.rxStatus}</b></p>}
       <ol className="steps" data-testid="steps">{STEPS.map((s,i)=><li key={s} className={i<=o.status?'done':''}><span/>{s}</li>)}</ol>
@@ -240,7 +267,7 @@ function BookRider(ctx) {
   const [task, setTask] = useState('Pick up a parcel and hand it over at home');
   const [km, setKm] = useState(3); const [mode, setMode] = useState('trip'); const [hours, setHours] = useState(1);
   const price = mode==='trip' ? SETTINGS.errandBase + Math.max(0, Math.ceil(km-3))*SETTINGS.errandPerKm : SETTINGS.errandHour*hours;
-  const book = async () => { const id = await api.bookErrand({ pickup, drop, task, price }); go('customer','track',id); };
+  const book = async () => { const id = await api.bookErrand({ pickup, drop, task, price, name: ctx.name, dropLat: HUB.lat + 0.01, dropLng: HUB.lng + 0.012 }); go('customer','track',id); };
   return (<div className="page"><Header title="Book a Rider 🛵" back={['home']} go={go}/>
     <p className="muted">Anything, anywhere in Porur — pick up, drop, buy & bring, queue for you.</p>
     <div className="seg">{[['trip','Per trip'],['hour','Hire by hour']].map(([k,n])=><button key={k} className={mode===k?'on':''} onClick={()=>setMode(k)}>{n}</button>)}</div>
@@ -256,8 +283,9 @@ function BookRider(ctx) {
 }
 
 /* ---------------- RIDER ---------------- */
-function Rider({ orders, setOrders, riders, setRiders }) {
-  const [rid, setRid] = useState('r1');
+function Rider({ orders, setOrders, riders, setRiders, me: profile, isAdmin }) {
+  const [rid, setRid] = useState(profile?.riderId || 'r1');
+  const gps = useRiderGps(rid);
   const [otpIn, setOtpIn] = useState({}); const [msg, setMsg] = useState({});
   const me = riders.find(r=>r.id===rid);
   const mine = orders.filter(o=>o.rider===rid && o.status<DONE);
@@ -266,8 +294,11 @@ function Rider({ orders, setOrders, riders, setRiders }) {
   const deliver = o => { if (otpIn[o.id]===o.otp) { upd(o.id,DONE); setRiders(rs_=>rs_.map(r=>r.id===rid?{...r,today:r.today+1}:r)); setMsg(m=>({...m,[o.id]:''})); } else setMsg(m=>({...m,[o.id]:'Wrong OTP. Ask customer again.'})); };
   const toggle = () => setRiders(rs_=>rs_.map(r=>r.id===rid?{...r,status:r.status==='offline'?'online':'offline'}:r));
   return (<div className="page dark-top">
-    <div className="rhead"><select value={rid} onChange={e=>setRid(e.target.value)}>{riders.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</select>
+    <div className="rhead">{isAdmin && profile?.role!=='rider' ? <select value={rid} onChange={e=>setRid(e.target.value)}>{riders.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</select> : <b style={{color:'#fff',flex:1}}>🛵 {me?.name}</b>}
       <button className={'pill '+me.status} onClick={toggle}>{me.status==='offline'?'⚪ Offline':'🟢 On duty'}</button></div>
+    <div className="card gpsbar"><b>🛰️ Live location</b> <small className="muted">{gps.status}</small>
+      <div className="row2"><button className={'chipbtn '+(gps.sharing?'on':'')} data-testid="gps-share" onClick={gps.toggle}>{gps.sharing?'Stop sharing':'Share my GPS'}</button>
+      <button className="chipbtn" data-testid="gps-sim" onClick={()=>gps.simulate(mine.find(o=>o.status>=3) || mine[0])}>Simulate drive</button></div></div>
     <div className="stats3"><div><b>{me.today}</b><small>Done today</small></div><div><b>{rs(me.today*25)}</b><small>Incentive</small></div><div><b>{mine.length}</b><small>Active</small></div></div>
     <h3 className="sec">Assigned to you</h3>
     {!mine.length && <p className="muted">No active tasks. Stay online!</p>}
