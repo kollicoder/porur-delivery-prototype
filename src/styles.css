@@ -58,3 +58,5 @@ button{font:inherit;cursor:pointer;border:0;background:none;color:inherit}
 .tbl{width:100%;border-collapse:collapse;background:#fff;border-radius:12px;overflow:hidden;font-size:13px} .tbl th,.tbl td{padding:8px;text-align:left;border-bottom:1px solid #f1f5f9} .tbl th{background:#f8fafc}
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;background:#9ca3af} .dot.online{background:#16a34a} .dot.delivering{background:#f59e0b} .dot.break{background:#3b82f6}
 .bars{display:flex;align-items:flex-end;gap:3px;height:96px;background:#fff;border-radius:12px;padding:8px} .bars div{flex:1;background:#16a34a;border-radius:3px 3px 0 0;min-height:2px}
+
+.syncbar{background:#fef3c7;padding:8px 12px;font-size:13px}.syncbar.err{background:#fee2e2;color:#991b1b}

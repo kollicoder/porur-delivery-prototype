@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, PieChart, Pie, Cell, Legend, ComposedChart, Line, CartesianGrid } from 'recharts';
-import { STORES, PRODUCTS } from './data.js';
-import { useLS, STEPS } from './store.js';
+import { STORES, PRODUCTS, SETTINGS } from './data.js';
+import { STEPS, DONE } from './store.js';
+import { api, backendInfo } from './live.js';
 import './desktop.css';
 
 const rs = n => '₹' + Math.round(n).toLocaleString('en-IN');
@@ -18,12 +19,14 @@ const Sample = () => <span className="sample">SAMPLE DATA</span>;
 export default function AdminDesktop(ctx) {
   const page = ctx.route.screen || 'overview';
   const [q, setQ] = useState(''); const [range, setRange] = useState('Today'); const [notif, setNotif] = useState(false);
-  const [settings, setSettings] = useLS('pd_settings', { fee:25, min:199, free:499, radius:5, nightFrom:'23:00', nightTo:'06:00', nightMedOnly:true, errandBase:99, errandHour:249, zones:{ 'Porur':true,'Ramapuram':true,'Valasaravakkam':true,'Mangadu':false,'Iyyappanthangal':true } });
-  const [stock, setStock] = useLS('pd_stock', {});
-  const [rx, setRx] = useLS('pd_rx', {});
+  // live from Firestore: settings/app, products (stock), orders.rxStatus
+  const settings = SETTINGS; const setSettings = fn => api.updateSettings(typeof fn==='function' ? fn(SETTINGS) : fn);
+  const stock = Object.fromEntries(PRODUCTS.map(p=>[p.id, p.inStock!==false])); const setStock = fn => { const n = fn(stock); for (const k in n) if (n[k]!==stock[k]) api.updateProduct(k, { inStock: n[k] }); };
+  const rx = Object.fromEntries(ctx.orders.filter(o=>o.rxStatus && o.rxStatus!=='pending').map(o=>[o.id,o.rxStatus]));
+  const setRx = fn => { const n = fn(rx); for (const k in n) if (n[k]!==rx[k]) api.updateOrder(k, { rxStatus: n[k], ...(n[k]==='rejected'?{status:'rejected'}:{}) }); };
   const P = { overview:Overview, orders:Orders, riders:Riders, stores:Stores, customers:Customers, errands:Errands, payments:Payments, reports:Reports, settings:Settings }[page] || Overview;
   const x = { ...ctx, q, settings, setSettings, stock, setStock, rx, setRx };
-  const pendingRx = ctx.orders.filter(o => o.items.some(([n])=>PRODUCTS.find(p=>p.name===n)?.rx) && !rx[o.id]).length;
+  const pendingRx = ctx.orders.filter(o => o.items.some(([n])=>PRODUCTS.find(p=>p.name===n)?.rx) && o.rxStatus==='pending').length;
   return (<div className="dk">
     <aside className="side">
       <div className="brand">🛵 <b>Porur Delivery</b><small>Admin console</small></div>
@@ -34,7 +37,7 @@ export default function AdminDesktop(ctx) {
       <div className="top">
         <input placeholder="🔍 Search orders, customers, riders…" value={q} onChange={e=>setQ(e.target.value)}/>
         <select value={range} onChange={e=>setRange(e.target.value)}>{['Today','Yesterday','Last 7 days','This month'].map(r=><option key={r}>{r}</option>)}</select>
-        <span className="live">● 24x7 LIVE · Night mode {settings.nightFrom}–{settings.nightTo}</span>
+        <span className="live" title={backendInfo.projectId}>● {backendInfo.emulatorHost?'EMULATOR':'LIVE'} SYNC · 24x7 · Night mode {settings.nightFrom}–{settings.nightTo}</span>
         <button className="bell" onClick={()=>setNotif(!notif)}>🔔<em>{pendingRx+2}</em></button>
         {notif && <div className="notifs"><b>Notifications</b><p>💊 {pendingRx} prescription(s) awaiting approval</p><p>⚠️ Rider Arun offline since 2 hrs</p><p>📦 Supermarket low stock: Sunflower Oil</p></div>}
         <div className="me">VC</div>
@@ -50,7 +53,7 @@ function Overview({ orders, riders, rx, go }) {
   const gmv = orders.reduce((a,o)=>a+o.total,0) + 14250;
   const n = orders.length + 38;
   const active = riders.filter(r=>r.status==='online'||r.status==='delivering').length;
-  const pending = orders.filter(o => o.items.some(([nm])=>PRODUCTS.find(p=>p.name===nm)?.rx) && !rx[o.id]).length + 2;
+  const pending = orders.filter(o => o.items.some(([nm])=>PRODUCTS.find(p=>p.name===nm)?.rx) && o.rxStatus==='pending').length;
   const mix = [['Groceries',22],['Fruits & Veg',14],['Medicines',9],['Errands',6]].map(([name,v])=>({name,value:v}));
   orders.forEach(o => { const c = o.type==='errand'?3 : {grocery:0,fv:1,med:2}[catOf(o.items[0]?.[0])] ?? 0; mix[c].value++; });
   return (<>
@@ -91,9 +94,9 @@ function OrderTable({ orders, riders, onOpen }) {
 
 function Orders({ orders, setOrders, riders, q, rx, setRx }) {
   const [view, setView] = useState('kanban'); const [f, setF] = useState('all'); const [open, setOpen] = useState(null);
-  const list = orders.filter(o => (f==='all' || (f==='errand'?o.type==='errand':f==='cod'?o.pay==='COD':f==='active'?o.status<4:true)) && (!q || JSON.stringify(o).toLowerCase().includes(q.toLowerCase())));
+  const list = orders.filter(o => (f==='all' || (f==='errand'?o.type==='errand':f==='cod'?o.pay==='COD':f==='active'?o.status<DONE:true)) && (!q || JSON.stringify(o).toLowerCase().includes(q.toLowerCase())));
   const isRx = o => o.items.some(([n])=>PRODUCTS.find(p=>p.name===n)?.rx);
-  const queue = orders.filter(o=>isRx(o) && !rx[o.id]);
+  const queue = orders.filter(o=>o.rxStatus==='pending');
   const upd = (id, ch) => setOrders(os=>os.map(o=>o.id===id?{...o,...ch}:o));
   const o = orders.find(x=>x.id===open);
   return (<>
@@ -104,7 +107,7 @@ function Orders({ orders, setOrders, riders, q, rx, setRx }) {
     </div>
     <div className="panel rxq"><h3>💊 Prescription approval queue ({queue.length})</h3>
       {!queue.length && <p className="muted">No prescriptions waiting. (Place a medicine order with an Rx item in the Customer app to see one here.)</p>}
-      {queue.map(o=><div key={o.id} className="rxrow"><b>{o.id}</b><span>{o.customer}</span><span>{o.items.filter(([n])=>PRODUCTS.find(p=>p.name===n)?.rx).map(([n])=>n).join(', ')}</span><span>📄 {o.rx||'prescription.jpg'}</span>
+      {queue.map(o=><div key={o.id} className="rxrow"><b>{o.id}</b><span>{o.customer}</span><span>{o.items.filter(([n])=>PRODUCTS.find(p=>p.name===n)?.rx).map(([n])=>n).join(', ')}</span><span>{o.prescriptionUri ? <a href={o.prescriptionUri} target="_blank" rel="noreferrer"><img src={o.prescriptionUri} alt="Rx" style={{height:40,borderRadius:4,verticalAlign:'middle'}}/></a> : '📄 no photo'}</span>
         <button className="ok" onClick={()=>setRx(r=>({...r,[o.id]:'approved'}))}>Approve</button><button className="no" onClick={()=>{setRx(r=>({...r,[o.id]:'rejected'})); }}>Reject</button></div>)}
     </div>
     {view==='kanban' ? <div className="kanban">{STEPS.map((s,i)=><div key={s} className="kcol"><h4>{s} <em>{list.filter(o=>o.status===i).length}</em></h4>
@@ -123,7 +126,7 @@ function Orders({ orders, setOrders, riders, q, rx, setRx }) {
 }
 
 function Riders({ riders, setRiders, orders }) {
-  const cash = r => orders.filter(o=>o.rider===r.id && o.pay==='COD' && o.status===4).reduce((a,o)=>a+o.total,0) + [820,0,450,1210,0,300,640,0,150,0][+r.id.slice(1)-1];
+  const cash = r => orders.filter(o=>o.rider===r.id && o.pay==='COD' && o.status===DONE).reduce((a,o)=>a+o.total,0) + [820,0,450,1210,0,300,640,0,150,0][+r.id.slice(1)-1];
   const cyc = { online:'break', break:'offline', offline:'online', delivering:'online' };
   return (<>
     <h1>Riders <Sample/></h1>
@@ -149,7 +152,7 @@ function Stores({ stock, setStock }) {
 
 function Customers({ orders, q }) {
   const base = [['Lakshmi R','98401 23456','Ramaniyam Apts, Porur',14,6230],['Ganesh K','98402 34567','Kundrathur Main Rd',6,1890],['Priya S','98403 45678','Iyyappanthangal',9,2410],['Mohan V','98404 56789','Gerugambakkam',3,980],['Fathima N','98405 67890','Valasaravakkam',21,11240],['Senthil Kumar','98406 78901','Ramapuram',2,420]];
-  const you = orders.filter(o=>o.customer==='You (demo)');
+  const you = orders.filter(o=>/^You/.test(o.customer));
   const rows = [...(you.length?[['You (demo)','—','Sri Sai Apartments, Porur',you.length,you.reduce((a,o)=>a+o.total,0)]]:[]), ...base].filter(r=>!q||r.join(' ').toLowerCase().includes(q.toLowerCase()));
   return (<><h1>Customers <Sample/></h1>
     <div className="kpis7 k4"><Kpi label="Total customers" value="1,284"/><Kpi label="New this week" value="96"/><Kpi label="Repeat rate" value="41%"/><Kpi label="Subscribers (free delivery)" value="73"/></div>
@@ -167,14 +170,14 @@ function Errands({ orders, riders, settings }) {
 }
 
 function Payments({ orders }) {
-  const cod = orders.filter(o=>o.pay==='COD'); const delivered = cod.filter(o=>o.status===4);
+  const cod = orders.filter(o=>o.pay==='COD'); const delivered = cod.filter(o=>o.status===DONE);
   const sett = [['Porur Fresh F&V',18400,'12%','Fri 16 Oct','Due'],['Sri Murugan Supermarket',42600,'10%','Fri 16 Oct','Due'],['Pharmacy, Porur',23900,'8%','Fri 9 Oct','Paid'],['Sri Murugan Supermarket',39100,'10%','Fri 9 Oct','Paid']];
   return (<><h1>Payments & Settlements <Sample/></h1>
     <div className="kpis7 k4"><Kpi label="UPI collected today" value={rs(orders.filter(o=>o.pay==='UPI').reduce((a,o)=>a+o.total,0)+11200)}/><Kpi label="COD to collect" value={rs(cod.reduce((a,o)=>a+o.total,0)+3050)} tone="warn"/><Kpi label="Vendor payouts due" value={rs(61000)}/><Kpi label="Gateway fees (2%)" value={rs(224)}/></div>
     <div className="grid2">
       <div className="panel"><h3>Vendor settlements (weekly)</h3><table className="dt"><thead><tr><th>Vendor</th><th>Amount</th><th>Commission</th><th>Date</th><th>Status</th></tr></thead><tbody>{sett.map((s,i)=><tr key={i}><td>{s[0]}</td><td>{rs(s[1])}</td><td>{s[2]}</td><td>{s[3]}</td><td><span className={'bdg '+(s[4]==='Paid'?'s4':'s0')}>{s[4]}</span></td></tr>)}</tbody></table></div>
       <div className="panel"><h3>COD reconciliation</h3><table className="dt"><thead><tr><th>Order</th><th>Amount</th><th>Status</th><th>Deposited</th></tr></thead><tbody>
-        {cod.map(o=><tr key={o.id}><td>{o.id}</td><td>{rs(o.total)}</td><td><Badge s={o.status}/></td><td>{o.status===4?'With rider — deposit at hub':'—'}</td></tr>)}
+        {cod.map(o=><tr key={o.id}><td>{o.id}</td><td>{rs(o.total)}</td><td><Badge s={o.status}/></td><td>{o.status===DONE?'With rider — deposit at hub':'—'}</td></tr>)}
         <tr><td>PD0998</td><td>₹1,210</td><td><span className="bdg s4">Delivered</span></td><td>✅ Deposited 8:40 AM</td></tr></tbody></table>
         <p className="muted small">{delivered.length} delivered COD order(s) pending hub deposit today.</p></div>
     </div></>);
@@ -207,5 +210,5 @@ function Settings({ settings, setSettings }) {
         <h4>Night hours</h4>{F({k:"nightFrom", label:"Night from", type:"time",})}{F({k:"nightTo", label:"Night to", type:"time",})}
         <div className="stock"><span>Night: medicines only</span><button className={'tog '+(settings.nightMedOnly?'on':'')} onClick={()=>set('nightMedOnly',!settings.nightMedOnly)}>{settings.nightMedOnly?'On':'Off'}</button></div></div>
     </div>
-    <p className="muted small">Saved in this browser. In the prototype the customer app still uses the default ₹25 fee / ₹199 minimum / ₹499 free-delivery rules.</p></>);
+    <p className="muted small">Saved to the backend (settings/app) and applied live in the customer apps (web + native).</p></>);
 }
