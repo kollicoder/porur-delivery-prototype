@@ -1,0 +1,21 @@
+const { chromium } = require('playwright');
+(async () => {
+  const b = await chromium.launch(); const p = await b.newPage({ viewport:{width:390,height:844}, deviceScaleFactor:2 });
+  const errs=[]; p.on('pageerror',e=>errs.push(e.message));
+  const U='http://localhost:4173/#/';
+  const shot = async (h,n,fn,full) => { await p.goto(U+h); await p.waitForTimeout(400); if(fn) await fn(); await p.waitForTimeout(300); await p.screenshot({path:`screenshots/${n}.png`, fullPage:!!full}); };
+  await p.goto(U+'customer/home'); await p.evaluate(()=>localStorage.clear());
+  await shot('customer/home','01-customer-home');
+  await shot('customer/voice','02-voice-order', async()=>{ await p.click('text=2 kg tomato, 1 litre milk, 1 dozen eggs'); });
+  await p.click('text=/Add 3 item/'); await p.waitForTimeout(300);
+  await shot('customer/list/med','03-medicines-list', async()=>{ await p.locator('.add').first().click(); });
+  await shot('customer/cart','04-cart');
+  await p.goto(U+'customer/checkout'); await p.waitForTimeout(300);
+  await p.setInputFiles('input[type=file]', {name:'prescription.jpg',mimeType:'image/jpeg',buffer:Buffer.from('x')});
+  await p.click('text=/Place order/'); await p.waitForTimeout(1500);
+  await p.screenshot({path:'screenshots/05-order-tracking.png'});
+  await shot('customer/rider','06-book-a-rider');
+  await shot('rider/home','07-rider-view');
+  await shot('admin/home','08-admin-dashboard',null,true);
+  console.log('errors:',errs); await b.close();
+})();
