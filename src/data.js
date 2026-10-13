@@ -27,8 +27,9 @@ export const RIDERS = [
   ['Karthik','online'],['Suresh','delivering'],['Prakash','online'],['Murali','delivering'],['Arun','offline'],
   ['Vijay','online'],['Senthil','delivering'],['Ramesh','break'],['Dinesh','online'],['Bala','offline'],
 ].map(([name,status],i)=>({ id:'r'+(i+1), name, status, phone:'98400 1'+(1000+i*37), today: [6,9,4,11,0,7,8,5,3,0][i] }));
-export const MIN_ORDER = 199;
-export const deliveryFee = (sub) => (sub >= 499 ? 0 : 25);
+// Live values (overwritten in place by Firestore settings/app — see live.js)
+export const SETTINGS = { fee:25, min:199, free:499, radius:5, nightFrom:'23:00', nightTo:'06:00', nightMedOnly:true, errandBase:99, errandHour:249, errandPerKm:12, zones:{ Porur:true, Ramapuram:true, Valasaravakkam:true, Mangadu:false, Iyyappanthangal:true } };
+export const deliveryFee = (sub) => (sub >= SETTINGS.free ? 0 : SETTINGS.fee);
 export const NUMWORDS = { one:1,two:2,three:3,four:4,five:5,half:0.5,oru:1,rendu:2,moonu:3,naalu:4,anju:5,'ஒரு':1,'ஒன்று':1,'இரண்டு':2,'ரெண்டு':2,'மூன்று':3,'நான்கு':4,'ஐந்து':5,'அரை':0.5 };
 export function parseOrder(text) {
   const parts = text.toLowerCase().split(/,|\band\b|\bum\b|மற்றும்|\n/).map(s=>s.trim()).filter(Boolean);
