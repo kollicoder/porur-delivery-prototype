@@ -24,15 +24,18 @@ const rid = p => p + Math.floor(1000 + Math.random() * 9000);
 export const toProto = o => ({ ...o, items: o.type === 'errand' ? [[`Errand: ${o.note || ''}`, 1]] : (o.lines || []).map(l => [l.name, l.qty]),
   status: FLOW.indexOf(o.status), time: new Date(o.createdAt).toTimeString().slice(0, 5), rx: o.prescriptionUri ? 'prescription.jpg' : undefined });
 
+let resolveReady; const ready = new Promise(r => (resolveReady = r)); // writes wait until sign-in + role are in place
+const w = f => async (...a) => { await ready; return f(...a); };
 export const api = {
-  setRole: async role => { if (!auth.currentUser) await signInAnonymously(auth); await setDoc(doc(db, 'users', auth.currentUser.uid), { role, updatedAt: new Date().toISOString() }, { merge: true }); return auth.currentUser.uid; },
+  setRole: async role => { if (!auth.currentUser) await signInAnonymously(auth); await setDoc(doc(db, 'users', auth.currentUser.uid), { role, updatedAt: new Date().toISOString() }, { merge: true }); resolveReady(); return auth.currentUser.uid; },
   uid: () => auth.currentUser?.uid,
-  updateOrder: (id, patch) => updateDoc(doc(db, 'orders', id), clean({ ...patch, updatedAt: new Date().toISOString() })),
-  updateProduct: (id, patch) => updateDoc(doc(db, 'products', id), patch),
-  updateSettings: patch => setDoc(doc(db, 'settings', 'app'), clean(patch), { merge: true }),
-  updateRider: (id, patch) => updateDoc(doc(db, 'riders', id), patch),
+  updateOrder: w((id, patch) => updateDoc(doc(db, 'orders', id), clean({ ...patch, updatedAt: new Date().toISOString() }))),
+  updateProduct: w((id, patch) => updateDoc(doc(db, 'products', id), patch)),
+  updateSettings: w(patch => setDoc(doc(db, 'settings', 'app'), clean(patch), { merge: true })),
+  updateRider: w((id, patch) => updateDoc(doc(db, 'riders', id), patch)),
   /** cart lines -> one order per store (each vendor sees only its part) */
   async placeOrder({ lines, fee, pay, address, rxDataUrl }) {
+    await ready;
     const byStore = {}; lines.forEach(l => (byStore[l.p.store] ||= []).push(l));
     const b = writeBatch(db); const now = new Date().toISOString(); let feeLeft = fee; const ids = [];
     for (const [storeId, ls] of Object.entries(byStore)) {
@@ -45,6 +48,7 @@ export const api = {
     await b.commit(); return ids;
   },
   async bookErrand({ pickup, drop, task, price }) {
+    await ready;
     const id = rid('ER'), now = new Date().toISOString(), uid = auth.currentUser.uid, note = `${task} (pickup: ${pickup})`;
     const b = writeBatch(db);
     b.set(doc(db, 'orders', id), { id, type: 'errand', customer: 'You (web demo)', phone: '98400 99999', address: drop, note, lines: [], subtotal: price, fee: 0, total: price, pay: 'UPI', status: 'placed', createdAt: now, updatedAt: now, otp: otp(), rider: 'r6', customerUid: uid });
