@@ -94,7 +94,7 @@ export function useLive() {
     const u = [
       onSnapshot(doc(db, 'users', user.uid), s => setMe(s.exists() ? { uid: s.id, ...s.data() } : null), err),
       // Admin check = can we list users? (bootstrap admin phone is only known to the rules)
-      onSnapshot(collection(db, 'users'), s => { setIsAdmin(true); setUsers(s.docs.map(d => ({ uid: d.id, ...d.data() }))); }, () => setIsAdmin(false)),
+      onSnapshot(collection(db, 'users'), s => { if (s.metadata.fromCache) return; setIsAdmin(true); setUsers(s.docs.map(d => ({ uid: d.id, ...d.data() }))); }, () => setIsAdmin(false)),
       onSnapshot(query(collection(db, 'orders'), where('customerUid', '==', user.uid)), s => setOwn(s.docs.map(d => d.data())), err),
       onSnapshot(collection(db, 'riders'), s => s.size && setRidersState(s.docs.map(d => d.data()).sort((a, b) => +a.id.slice(1) - +b.id.slice(1))), err),
       onSnapshot(collection(db, 'products'), s => { if (!s.size) return; const ps = s.docs.map(d => d.data()).sort((a, b) => +a.id.slice(1) - +b.id.slice(1)); PRODUCTS.splice(0, PRODUCTS.length, ...ps); bump(x => x + 1); }, err),
