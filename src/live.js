@@ -3,8 +3,10 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, connectAuthEmulator, RecaptchaVerifier, signInWithPhoneNumber, onAuthStateChanged, signOut } from 'firebase/auth';
-import { getFirestore, connectFirestoreEmulator, collection, doc, onSnapshot, setDoc, updateDoc, writeBatch, getDoc, query, where, deleteField } from 'firebase/firestore';
+import { getFirestore, connectFirestoreEmulator, collection, doc, onSnapshot, setDoc, updateDoc, writeBatch, getDoc, getDocs, query, where, deleteField } from 'firebase/firestore';
 import { PRODUCTS, SETTINGS, RIDERS } from './data.js';
+import { pickRider } from './dispatch.js';
+import { sendPushMany } from './push.js';
 
 const E = import.meta.env;
 const projectId = E.VITE_FIREBASE_PROJECT_ID || 'demo-porur';
@@ -18,9 +20,11 @@ if (/[?&]test=1/.test(location.search)) localStorage.setItem('pd_test', '1');
 if (testMode) auth.settings.appVerificationDisabledForTesting = true;
 export const backendInfo = { projectId, emulatorHost, testMode };
 
+const STORE_POS = { s1: { lat: 13.0359, lng: 80.1574 }, s2: { lat: 13.0382, lng: 80.1617 }, s3: { lat: 13.0331, lng: 80.1532 } };
 export const FLOW = ['placed', 'accepted', 'ready', 'picked_up', 'on_the_way', 'delivered'];
 export const FLOW_LABEL = { placed: 'Order placed', accepted: 'Store accepted your order', ready: 'Packed and ready for pickup', picked_up: 'Rider picked up your order', on_the_way: 'Rider is on the way', delivered: 'Delivered — enjoy!', rejected: 'Store could not take the order' };
 const clean = o => JSON.parse(JSON.stringify(o));
+export const PAY_LABEL = { COD: 'Cash on delivery', UPI_DOD: 'UPI on delivery', UPI: 'UPI (legacy demo)' };
 const otp = () => String(1000 + Math.floor(Math.random() * 9000));
 const rid = p => p + Math.floor(1000 + Math.random() * 9000);
 
@@ -46,28 +50,49 @@ export const api = {
   updateProduct: w((id, patch) => updateDoc(doc(db, 'products', id), patch)),
   updateSettings: w(patch => setDoc(doc(db, 'settings', 'app'), clean(patch), { merge: true })),
   updateRider: w((id, patch) => updateDoc(doc(db, 'riders', id), clean(patch))),
+  /** One order per store. ONE delivery fee per checkout (on part 1, labelled on every part). OTP + prescription go to private docs. */
   async placeOrder({ lines, fee, pay, address, rxDataUrl, name, dropLat, dropLng }) {
     await ready;
     const byStore = {}; lines.forEach(l => (byStore[l.p.store] ||= []).push(l));
-    const b = writeBatch(db); const now = new Date().toISOString(); let feeLeft = fee; const ids = [];
-    for (const [storeId, ls] of Object.entries(byStore)) {
+    const groups = Object.entries(byStore); const groupId = rid('G');
+    const b = writeBatch(db); const now = new Date().toISOString(); const ids = []; const uid = auth.currentUser.uid;
+    groups.forEach(([storeId, ls], i) => {
       const sl = ls.map(l => ({ productId: l.p.id, name: l.p.name, qty: l.q, price: l.p.price, rx: !!l.p.rx }));
-      const subtotal = sl.reduce((a, l) => a + l.price * l.qty, 0); const f = feeLeft; feeLeft = 0; const hasRx = sl.some(l => l.rx);
+      const subtotal = sl.reduce((a, l) => a + l.price * l.qty, 0); const f = i === 0 ? fee : 0;
+      const hasRx = sl.some(l => l.rx) || (!!rxDataUrl && ls.some(l => l.p.cat === 'med'));
       const id = rid('PD'); ids.push(id);
-      b.set(doc(db, 'orders', id), clean({ id, type: 'order', storeId, customer: name, phone: auth.currentUser.phoneNumber, address, lines: sl, subtotal, fee: f, total: subtotal + f, pay,
-        status: 'placed', createdAt: now, updatedAt: now, otp: otp(), rider: 'r1', customerUid: auth.currentUser.uid, dropLat, dropLng, ...(hasRx ? { rxStatus: 'pending', prescriptionUri: rxDataUrl || null } : {}) }));
-    }
-    await b.commit(); return ids;
+      b.set(doc(db, 'orders', id), clean({ id, type: 'order', storeId, customer: name, phone: auth.currentUser.phoneNumber, address, lines: sl, subtotal, fee: f, total: subtotal + f, pay, paymentStatus: 'due',
+        status: 'placed', createdAt: now, updatedAt: now, customerUid: uid, dropLat, dropLng,
+        ...(groups.length > 1 ? { groupId, part: i + 1, parts: groups.length, feeNote: i === 0 ? `Delivery fee for all ${groups.length} parts of this checkout` : 'Delivery fee charged on part 1' } : {}),
+        ...(hasRx ? { rxStatus: 'pending', hasRxPhoto: !!rxDataUrl } : {}) }));
+      b.set(doc(db, 'orderSecrets', id), { otp: otp(), customerUid: uid, createdAt: now });
+      if (hasRx && rxDataUrl) b.set(doc(db, 'prescriptions', id), { img: rxDataUrl, storeId, customerUid: uid, createdAt: now });
+    });
+    await b.commit(); groups.forEach(([storeId], i) => pushTo({ storeId }, '🛎️ New order ' + ids[i], name || ''));
+    return ids;
   },
-  async bookErrand({ pickup, drop, task, price, name, dropLat, dropLng }) {
+  async bookErrand({ pickup, drop, task, price, name, dropLat, dropLng, pay = 'COD', riders = [] }) {
     await ready;
     const id = rid('ER'), now = new Date().toISOString(), uid = auth.currentUser.uid, note = `${task} (pickup: ${pickup})`;
+    const rider = pickRider(riders, dropLat ? { lat: dropLat, lng: dropLng } : undefined);
     const b = writeBatch(db);
-    b.set(doc(db, 'orders', id), clean({ id, type: 'errand', customer: name, phone: auth.currentUser.phoneNumber, address: drop, note, lines: [], subtotal: price, fee: 0, total: price, pay: 'UPI', status: 'placed', createdAt: now, updatedAt: now, otp: otp(), rider: 'r6', customerUid: uid, dropLat, dropLng }));
+    b.set(doc(db, 'orders', id), clean({ id, type: 'errand', customer: name, phone: auth.currentUser.phoneNumber, address: drop, note, lines: [], subtotal: price, fee: 0, total: price, pay, paymentStatus: 'due', status: 'placed', createdAt: now, updatedAt: now, ...(rider ? { rider } : {}), customerUid: uid, dropLat, dropLng }));
+    b.set(doc(db, 'orderSecrets', id), { otp: otp(), customerUid: uid, createdAt: now });
     b.set(doc(db, 'errands', id), { orderId: id, note, createdAt: now, customerUid: uid });
-    await b.commit(); return id;
+    await b.commit(); if (rider) pushTo({ riderId: rider }, '🛵 New errand ' + id, note);
+    return id;
   },
+  /** Rider submits the customer's code; Firestore rules check it against orderSecrets/{id}. */
+  deliver: w((id, code, collectedVia) => updateDoc(doc(db, 'orders', id), clean({ status: 'delivered', deliveryCode: code, deliveredAt: new Date().toISOString(), updatedAt: new Date().toISOString(), ...(collectedVia ? { paymentStatus: 'collected', collectedVia } : {}) }))),
+  watchSecret(id, cb) { return onSnapshot(doc(db, 'orderSecrets', id), s => cb(s.exists() ? s.data().otp : null), () => cb(null)); },
+  watchPrescription(id, cb) { return onSnapshot(doc(db, 'prescriptions', id), s => cb(s.exists() ? s.data().img : null), () => cb(null)); },
 };
+
+async function pushTo(to, title, body) {
+  try { const k = to.storeId ? 'storeId' : 'riderId', v = to.storeId || to.riderId; if (!v) return;
+    const s = await getDocs(query(collection(db, 'pushTokens'), where(k, '==', v))); await sendPushMany(s.docs.map(d => d.data().token), title, body); } catch (e) { console.warn('pushTo', e); }
+}
+export { pushTo };
 
 // ---- Web notifications (while the tab is open; background web push needs a server — next step) ----
 export const notifySupported = typeof Notification !== 'undefined';
@@ -134,6 +159,9 @@ export function useLive() {
       const patch = {};
       if (n.status !== o.status) patch.status = FLOW[n.status];
       if (n.rider !== o.rider) patch.rider = n.rider;
+      // auto-dispatch: accepted with no rider → nearest online rider (GPS) / least busy; admin can still change it
+      if (patch.status === 'accepted' && !n.rider && !patch.rider) { const st = STORE_POS[o.storeId]; const r = pickRider(ridersRef.current, st); if (r) patch.rider = r; }
+      if (patch.status && o.customerPushToken) sendPushMany([o.customerPushToken], `Order ${o.id}`, FLOW_LABEL[patch.status] || patch.status);
       if (n.rxStatus !== o.rxStatus) patch.rxStatus = n.rxStatus;
       if (Object.keys(patch).length) api.updateOrder(o.id, patch).catch(err);
     }

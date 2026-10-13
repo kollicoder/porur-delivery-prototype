@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, PieChart, Pie, Cell, Legend, ComposedChart, Line, CartesianGrid } from 'recharts';
 import { STORES, PRODUCTS, SETTINGS } from './data.js';
 import { STEPS, DONE } from './store.js';
@@ -117,9 +117,9 @@ function Orders({ orders, setOrders, riders, q, rx, setRx }) {
       <div className="row"><h2>{o.id}</h2><button onClick={()=>setOpen(null)}>✕</button></div>
       <Badge s={o.status}/><p><b>{o.customer}</b><br/>{o.address}</p>
       <table className="dt"><tbody>{o.items.map(([n,qq],i)=><tr key={i}><td>{n}</td><td>×{qq}</td></tr>)}<tr><td><b>Total ({o.pay})</b></td><td><b>{rs(o.total)}</b></td></tr></tbody></table>
-      <label>Assign / reassign rider</label><select value={o.rider} onChange={e=>upd(o.id,{rider:e.target.value})}>{riders.map(r=><option key={r.id} value={r.id}>{r.name} ({r.status})</option>)}</select>
+      <label>Assign / reassign rider</label><select value={o.rider||''} onChange={e=>upd(o.id,{rider:e.target.value})}>{!o.rider && <option value="">⚠️ Unassigned — pick a rider</option>}{riders.map(r=><option key={r.id} value={r.id}>{r.name} ({r.status})</option>)}</select>
       <label>Status</label><select value={o.status} onChange={e=>upd(o.id,{status:+e.target.value})}>{STEPS.map((s,i)=><option key={s} value={i}>{s}</option>)}</select>
-      <p className="muted">Delivery OTP: {o.otp} · placed {o.time}</p>
+      <AdminOtp id={o.id} time={o.time} o={o}/>
       <button className="danger" onClick={()=>{setOrders(os=>os.filter(x=>x.id!==o.id)); setOpen(null);}}>Cancel order</button>
     </div></div>}
   </>);
@@ -241,4 +241,12 @@ function Users({ users, riders, me }) {
       </tbody></table>
       <p className="muted small">Bootstrap admin: the owner's phone number is written into the deployed security rules, so it is always an admin even if this table is edited.</p></div>
   </>);
+}
+
+/** Admin may read the private delivery OTP (orderSecrets) — e.g. to help a customer whose phone died. */
+function AdminOtp({ id, time, o }) {
+  const [otp, setOtp] = useState(null); useEffect(() => api.watchSecret(id, setOtp), [id]);
+  const [rx, setRx] = useState(null); useEffect(() => o.rxStatus ? api.watchPrescription(id, setRx) : undefined, [id, o.rxStatus]);
+  return <><p className="muted">Delivery OTP (admin only): {otp ?? o.otp ?? '—'} · placed {time} · {o.paymentStatus === 'collected' ? `paid (${o.collectedVia})` : 'payment due on delivery'}</p>
+    {rx && <img src={rx} alt="prescription" style={{ maxWidth: 160, borderRadius: 8 }}/>}</>;
 }

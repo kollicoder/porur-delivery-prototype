@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { STORES, PRODUCTS, SETTINGS, deliveryFee, parseOrder } from './data.js';
-import { useLive, api, backendInfo, toProto, notifySupported } from './live.js';
+import { useLive, api, backendInfo, toProto, notifySupported, PAY_LABEL, FLOW_LABEL } from './live.js';
+import { sendPushMany } from './push.js';
+const pushCustomer = (o, st) => sendPushMany([o.customerPushToken], `Order ${o.id}`, FLOW_LABEL[st] || st);
 import LiveMap, { HUB } from './map.jsx';
 import { Login, RequestAccess } from './auth.jsx';
 import { useLS, STEPS, DONE } from './store.js';
@@ -193,7 +195,7 @@ function Cart(ctx) {
 }
 function Checkout(ctx) {
   const { cart, setCart, go } = ctx; const { lines, sub, fee, rx } = cartTotals(cart);
-  const [pay, setPay] = useState('UPI'); const [addr, setAddr] = useState('Flat 2A, Sri Sai Apartments, Mount-Poonamallee Rd, Porur');
+  const [pay, setPay] = useState('COD'); const [err, setErr] = useState(''); const [addr, setAddr] = useState('Flat 2A, Sri Sai Apartments, Mount-Poonamallee Rd, Porur');
   const [rxFile, setRxFile] = useState(''); const [busy, setBusy] = useState(false);
   const hasMed = lines.some(l=>l.p.cat==='med');
   const [rxData, setRxData] = useState('');
@@ -201,27 +203,31 @@ function Checkout(ctx) {
   const useMyLoc = () => { setLocMsg('Locating…'); navigator.geolocation?.getCurrentPosition(p => { setLoc({ lat:p.coords.latitude, lng:p.coords.longitude }); setLocMsg('📍 Using your current location'); }, e => setLocMsg('Location unavailable ('+e.message+') — using the address pin')); };
   const place = async () => {
     setBusy(true);
-    await new Promise(r=>setTimeout(r, pay==='UPI'?900:200)); // mock UPI
-    const ids = await api.placeOrder({ lines, fee, pay, address:addr, rxDataUrl: rxData, name: ctx.name, dropLat: loc.lat, dropLng: loc.lng });
-    setCart({}); go('customer','track',ids[0]);
+    try { const ids = await api.placeOrder({ lines, fee, pay, address:addr, rxDataUrl: rxData, name: ctx.name, dropLat: loc.lat, dropLng: loc.lng });
+      setCart({}); go('customer','track',ids[0]); } catch (e) { setErr('Could not place the order: ' + e.message); setBusy(false); }
   };
   if (!lines.length) return <div className="page"><Header title="Checkout" back={['cart']} go={go}/><p className="muted">Cart is empty.</p></div>;
   return (<div className="page"><Header title="Checkout" back={['cart']} go={go}/>
     <label className="lbl">Deliver to</label><textarea className="inp" rows={2} value={addr} onChange={e=>setAddr(e.target.value)}/>
     <button className="chipbtn" onClick={useMyLoc}>📍 Use my current location</button> <small className="muted">{locMsg}</small>
     {hasMed && <div className="card"><b>📄 Prescription {rx ? '(required)' : '(optional)'}</b>
-      <p className="muted small">Upload a photo. A licensed pharmacist will verify before dispatch. (Prototype: file is not uploaded anywhere.)</p>
-      <input type="file" accept="image/*" onChange={e=>{ const f=e.target.files[0]; setRxFile(f?.name||''); if(f) shrink(f).then(setRxData); }}/>
+      <p className="muted small">Upload a photo. Only the pharmacist and you can see it — never the rider.</p>
+      <input type="file" accept="image/*" onChange={e=>{ const f=e.target.files[0]; setRxFile(f?.name||''); if(f) shrink(f).then(d=>{ if (d.length > 280000) { setRxFile(''); setErr('Photo too large — please use a smaller photo.'); } else { setErr(''); setRxData(d); } }); }}/>
       {rxFile && <p className="ok">✓ {rxFile} attached</p>}</div>}
-    <label className="lbl">Pay with</label>
-    {[['UPI','📱 UPI (GPay / PhonePe / Paytm)'],['COD','💵 Cash on delivery']].map(([k,n])=><label key={k} className={'radio '+(pay===k?'on':'')}><input type="radio" checked={pay===k} onChange={()=>setPay(k)}/>{n}</label>)}
-    <div className="card bill"><div className="line tot"><span>To pay</span><span>{rs(sub+fee)}</span></div></div>
-    <button className="primary" disabled={busy || (rx && !rxFile)} onClick={place}>{busy ? (pay==='UPI'?'Waiting for UPI… (mock)':'Placing…') : `Place order · ${rs(sub+fee)}`}</button>
+    <label className="lbl">Pay on delivery</label>
+    {[['COD','💵 Cash on delivery','Pay the rider in cash'],['UPI_DOD','📱 UPI on delivery','Scan & pay with GPay / PhonePe / Paytm at your door']].map(([k,n,sub])=><label key={k} data-testid={'pay-'+k} className={'radio '+(pay===k?'on':'')}><input type="radio" checked={pay===k} onChange={()=>setPay(k)}/>{n}<br/><small className="muted">{sub}</small></label>)}
+    <label className="radio" style={{opacity:.55}} data-testid="pay-online"><input type="radio" disabled/>💳 Pay online now (UPI / cards) <b style={{color:'#b45309',fontSize:11}}>COMING SOON</b></label>
+    <div className="card bill" data-testid="bill"><div className="line"><span>Item total</span><span>{rs(sub)}</span></div>
+      <div className="line"><span>Delivery fee{new Set(lines.map(l=>l.p.store)).size>1?' (once for this checkout)':''}</span><span>{fee?rs(fee):'FREE'}</span></div>
+      <div className="line tot"><span>To pay at delivery</span><span>{rs(sub+fee)}</span></div>
+      {new Set(lines.map(l=>l.p.store)).size>1 && <small className="muted">Your items come from {new Set(lines.map(l=>l.p.store)).size} stores, so you'll get {new Set(lines.map(l=>l.p.store)).size} orders. The delivery fee is charged once.</small>}</div>
+    {err && <p className="err">{err}</p>}
+    <button className="primary" data-testid="place" disabled={busy || (rx && !rxFile)} onClick={place}>{busy ? 'Placing…' : `Place order · ${rs(sub+fee)}`}</button>
     {rx && !rxFile && <p className="muted small">Attach prescription to continue.</p>}
   </div>);
 }
-// No Firebase Storage on the free plan: shrink the photo to ~600px JPEG and store it inline in the order
-function shrink(file) { return new Promise(res => { const img = new Image(); img.onload = () => { const w = Math.min(600, img.width), c = document.createElement('canvas'); c.width = w; c.height = img.height * w / img.width; c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); res(c.toDataURL('image/jpeg', 0.5)); }; img.onerror = () => res(''); img.src = URL.createObjectURL(file); }); }
+// No Storage bucket on the Spark plan: shrink the photo to ~800px JPEG; saved in its own private prescriptions/{orderId} doc (rules cap ~300 KB)
+function shrink(file) { return new Promise(res => { const img = new Image(); img.onload = () => { const w = Math.min(800, img.width), c = document.createElement('canvas'); c.width = w; c.height = img.height * w / img.width; c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); res(c.toDataURL('image/jpeg', 0.5)); }; img.onerror = () => res(''); img.src = URL.createObjectURL(file); }); }
 /** Rider GPS: real browser geolocation (watchPosition, throttled) or a simulated drive toward the active drop point. */
 function useRiderGps(rid) {
   const [sharing, setSharing] = useState(false); const [status, setStatus] = useState('not sharing'); const watch = useRef(null), last = useRef(0), sim = useRef(null);
@@ -242,6 +248,10 @@ function Track(ctx) {
   const o = mine.find(x=>x.id===route.arg) || mine[0];
   if (!o) return <div className="page"><Header title="My orders" back={['home']} go={go}/><div className="empty">📦<p>No orders yet</p></div></div>;
   const r = riders.find(x=>x.id===o.rider);
+  return <TrackView {...ctx} o={o} r={r} mine={mine}/>;
+}
+function TrackView({ o, r, mine, go }) {
+  const [otp, setOtp] = useState(null); useEffect(() => api.watchSecret(o.id, setOtp), [o.id]);
   return (<div className="page"><Header title={`Order ${o.id}`} back={['home']} go={go}/>
     <LiveMap testId="track-map" markers={[
       ...(o.storeId ? [STORES.find(x=>x.id===o.storeId)].filter(Boolean).map(st=>({lat:st.lat,lng:st.lng,emoji:'🏪',label:st.name.split(' ')[0]})) : []),
@@ -254,8 +264,12 @@ function Track(ctx) {
       <ol className="steps" data-testid="steps">{STEPS.map((s,i)=><li key={s} className={i<=o.status?'done':''}><span/>{s}</li>)}</ol>
     </div>
     {r && <div className="card rider"><div className="sicon">🧑</div><div><b>{r.name}</b> is your rider<br/><small>📞 {r.phone}</small></div></div>}
-    <div className="card"><b>Delivery OTP: <span className="otp">{o.otp}</span></b><p className="muted small">Share this with the rider only at delivery.</p></div>
-    <div className="card">{o.items.map(([n,q],i)=><div key={i} className="line"><span>{n}</span><span>×{q}</span></div>)}<div className="line tot"><span>Total ({o.pay})</span><span>{rs(o.total)}</span></div></div>
+    {o.status>=0 && o.status<DONE && <div className="card" data-testid="otp-card"><b>Delivery OTP: <span className="otp">{otp ?? o.otp ?? '····'}</span></b><p className="muted small">Only you can see this code. Tell it to the rider when you receive the order.</p></div>}
+    <div className="card" data-testid="order-bill">{o.parts>1 && <small className="muted">Part {o.part} of {o.parts} from one checkout (one order per store)</small>}
+      {o.type==='errand' ? o.items.map(([n],i)=><div key={i} className="line"><span>{n}</span></div>) : (o.lines||[]).map((l,i)=><div key={i} className="line"><span>{l.name} × {l.qty}</span><span>{rs(l.price*l.qty)}</span></div>)}
+      {o.type!=='errand' && <><div className="line"><span>Item total</span><span>{rs(o.subtotal)}</span></div><div className="line"><span>Delivery fee</span><span>{o.fee?rs(o.fee):(o.parts>1&&o.part>1?'on part 1':'FREE')}</span></div>{o.feeNote && <small className="muted">{o.feeNote}</small>}</>}
+      <div className="line tot"><span>Total · {PAY_LABEL[o.pay]||o.pay}</span><span>{rs(o.total)}</span></div>
+      <small className="muted">{o.paymentStatus==='collected' ? `✅ Paid (${o.collectedVia==='upi'?'UPI':'cash'}) to the rider` : 'Pay the rider when it arrives'}</small></div>
     <p className="muted small">🟢 Live: updates from the store, rider and admin appear here automatically.</p>
     {mine.length>1 && <><h3 className="sec">Other orders</h3>{mine.filter(x=>x.id!==o.id).map(x=><div key={x.id} className="card store" onClick={()=>go('customer','track',x.id)}><b>{x.id}</b> · {STEPS[x.status]||'Cancelled'} · {rs(x.total)}</div>)}</>}
   </div>);
@@ -267,7 +281,8 @@ function BookRider(ctx) {
   const [task, setTask] = useState('Pick up a parcel and hand it over at home');
   const [km, setKm] = useState(3); const [mode, setMode] = useState('trip'); const [hours, setHours] = useState(1);
   const price = mode==='trip' ? SETTINGS.errandBase + Math.max(0, Math.ceil(km-3))*SETTINGS.errandPerKm : SETTINGS.errandHour*hours;
-  const book = async () => { const id = await api.bookErrand({ pickup, drop, task, price, name: ctx.name, dropLat: HUB.lat + 0.01, dropLng: HUB.lng + 0.012 }); go('customer','track',id); };
+  const [pay, setPay] = useState('COD');
+  const book = async () => { const id = await api.bookErrand({ pickup, drop, task, price, pay, riders: ctx.riders, name: ctx.name, dropLat: HUB.lat + 0.01, dropLng: HUB.lng + 0.012 }); go('customer','track',id); };
   return (<div className="page"><Header title="Book a Rider 🛵" back={['home']} go={go}/>
     <p className="muted">Anything, anywhere in Porur — pick up, drop, buy & bring, queue for you.</p>
     <div className="seg">{[['trip','Per trip'],['hour','Hire by hour']].map(([k,n])=><button key={k} className={mode===k?'on':''} onClick={()=>setMode(k)}>{n}</button>)}</div>
@@ -278,6 +293,8 @@ function BookRider(ctx) {
      : <><label className="lbl">Hours: {hours}</label><input type="range" min="1" max="6" value={hours} onChange={e=>setHours(+e.target.value)}/></>}
     <div className="card bill"><div className="line tot"><span>Estimated price</span><span>{rs(price)}</span></div>
       <small className="muted">{mode==='trip' ? `${rs(SETTINGS.errandBase)} for first 3 km, ${rs(SETTINGS.errandPerKm)} per extra km` : `${rs(SETTINGS.errandHour)} per hour, rider stays with you`} · item cost (if buying) paid separately</small></div>
+    <div className="seg">{[['COD','💵 Cash on delivery'],['UPI_DOD','📱 UPI on delivery']].map(([k,n])=><button key={k} className={pay===k?'on':''} onClick={()=>setPay(k)}>{n}</button>)}</div>
+    <small className="muted">We assign the nearest available rider automatically.</small>
     <button className="primary" onClick={book}>Book rider · {rs(price)}</button>
   </div>);
 }
@@ -291,7 +308,13 @@ function Rider({ orders, setOrders, riders, setRiders, me: profile, isAdmin }) {
   const mine = orders.filter(o=>o.rider===rid && o.status<DONE);
   const done = orders.filter(o=>o.rider===rid && o.status===DONE);
   const upd = (id, s) => setOrders(os=>os.map(o=>o.id===id?{...o,status:s}:o));
-  const deliver = o => { if (otpIn[o.id]===o.otp) { upd(o.id,DONE); setRiders(rs_=>rs_.map(r=>r.id===rid?{...r,today:r.today+1}:r)); setMsg(m=>({...m,[o.id]:''})); } else setMsg(m=>({...m,[o.id]:'Wrong OTP. Ask customer again.'})); };
+  const [via, setVia] = useState({});
+  // The rider never sees the OTP: the code typed here is checked by Firestore rules against the customer's private orderSecrets doc.
+  const deliver = async o => { const code = (otpIn[o.id]||'').trim(); if (!/^\d{4}$/.test(code)) return setMsg(m=>({...m,[o.id]:'Enter the 4-digit code from the customer.'}));
+    setMsg(m=>({...m,[o.id]:'Checking…'}));
+    try { await api.deliver(o.id, code, via[o.id] || (o.pay==='UPI_DOD'?'upi':'cash')); setRiders(rs_=>rs_.map(r=>r.id===rid?{...r,today:r.today+1}:r)); setMsg(m=>({...m,[o.id]:''}));
+      if (o.customerPushToken) pushCustomer(o, 'delivered'); }
+    catch (e) { setMsg(m=>({...m,[o.id]:/permission/i.test(e.message)?'Wrong OTP. Ask the customer again.':'⚠️ '+e.message})); } };
   const toggle = () => setRiders(rs_=>rs_.map(r=>r.id===rid?{...r,status:r.status==='offline'?'online':'offline'}:r));
   return (<div className="page dark-top">
     <div className="rhead">{isAdmin && profile?.role!=='rider' ? <select value={rid} onChange={e=>setRid(e.target.value)}>{riders.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</select> : <b style={{color:'#fff',flex:1}}>🛵 {me?.name}</b>}
@@ -306,14 +329,15 @@ function Rider({ orders, setOrders, riders, setRiders, me: profile, isAdmin }) {
       <div className="line"><b>{o.type==='errand'?'🛵 Errand':'📦 Order'} {o.id}</b><span className="badge">{STEPS[o.status]}</span></div>
       <small>👤 {o.customer} · 📍 {o.address}</small>
       <ul className="small">{o.items.map(([n,q],i)=><li key={i}>{n} ×{q}</li>)}</ul>
-      <div className="line"><span>{o.pay==='COD'?'💵 Collect cash':'✅ Prepaid (UPI)'}</span><b>{rs(o.total)}</b></div>
+      <div className="line"><span>{o.pay==='UPI' ? '✅ Prepaid (legacy demo)' : o.pay==='UPI_DOD' ? '📱 Collect via UPI' : '💵 Collect cash'}</span><b>{rs(o.total)}</b></div>
       {o.type!=='errand' && o.status<2 && <p className="muted small">⏳ Waiting for the store to {o.status===0?'accept':'pack'} the order…</p>}
       {o.type==='errand' && o.status===0 && <button className="primary" onClick={()=>upd(o.id,1)}>Accept errand</button>}
       {(o.status===2 || (o.type==='errand' && o.status===1)) && <button className="primary" onClick={()=>upd(o.id,3)}>Picked up</button>}
       {o.status===3 && <button className="primary" onClick={()=>upd(o.id,4)}>Start trip</button>}
-      {o.status===4 && <div className="otprow"><input className="inp" inputMode="numeric" maxLength={4} placeholder="Customer OTP" value={otpIn[o.id]||''} onChange={e=>setOtpIn(m=>({...m,[o.id]:e.target.value}))}/><button className="primary" onClick={()=>deliver(o)}>Delivered</button></div>}
+      {o.status===4 && o.pay!=='UPI' && <div className="seg">{[['cash','💵 Got cash'],['upi','📱 Got UPI']].map(([k,n])=><button key={k} className={(via[o.id]||(o.pay==='UPI_DOD'?'upi':'cash'))===k?'on':''} onClick={()=>setVia(v=>({...v,[o.id]:k}))}>{n}</button>)}</div>}
+      {o.status===4 && <div className="otprow"><input data-testid={'otp-in-'+o.id} className="inp" inputMode="numeric" maxLength={4} placeholder="Customer OTP" value={otpIn[o.id]||''} onChange={e=>setOtpIn(m=>({...m,[o.id]:e.target.value}))}/><button className="primary" data-testid={'deliver-'+o.id} onClick={()=>deliver(o)}>Delivered</button></div>}
       {msg[o.id] && <p className="err">{msg[o.id]}</p>}
-      {o.status===4 && <small className="muted">Demo hint: OTP is {o.otp}</small>}
+      {o.status===4 && <small className="muted">Ask the customer for the 4-digit code shown in their app.</small>}
     </div>)}
     {done.length>0 && <><h3 className="sec">Completed</h3>{done.map(o=><div key={o.id} className="card small">✅ {o.id} · {rs(o.total)}</div>)}</>}
   </div>);
@@ -341,7 +365,7 @@ function Admin({ orders, setOrders, riders }) {
     <h3 className="sec">Live orders</h3>
     <div className="board">{cols.map(([s,n])=><div key={s} className="col"><h4>{n} <span>{orders.filter(o=>o.status===s).length}</span></h4>
       {orders.filter(o=>o.status===s).map(o=><div key={o.id} className="ocard"><b>{o.id}</b> <small>{o.time}</small><br/><small>{o.customer}</small><br/><small>{rs(o.total)} · {o.pay}</small>
-        {s<DONE && <select value={o.rider} onChange={e=>assign(o.id,e.target.value)}>{riders.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</select>}</div>)}
+        {s<DONE && <select value={o.rider} onChange={e=>assign(o.id,e.target.value)}>{!o.rider && <option value="">⚠️ Unassigned</option>}{riders.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</select>}</div>)}
     </div>)}</div>
     <h3 className="sec">Riders</h3>
     <table className="tbl"><thead><tr><th>Rider</th><th>Status</th><th>Today</th><th>Active</th></tr></thead><tbody>
