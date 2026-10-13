@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { STORES, PRODUCTS, RIDERS, MIN_ORDER, deliveryFee, parseOrder } from './data.js';
 import { useLS, STEPS, seedOrders } from './store.js';
+import AdminDesktop from './AdminDesktop.jsx';
 
 const rs = n => '₹' + Math.round(n).toLocaleString('en-IN');
 const CATS = [
@@ -19,10 +20,12 @@ export default function App() {
   const [orders, setOrders] = useLS('pd_orders', seedOrders());
   const [riders, setRiders] = useLS('pd_riders', RIDERS);
   const ctx = { route, go, cart, setCart, orders, setOrders, riders, setRiders };
+  if (route.role==='admin-desktop') return <AdminDesktop {...ctx} />;
   return (
     <div className="phone">
       <div className="switcher">
         {['customer','rider','admin'].map(r => <button key={r} className={route.role===r?'on':''} onClick={()=>go(r)}>{r[0].toUpperCase()+r.slice(1)}</button>)}
+        <button onClick={()=>go('admin-desktop','overview')}>Admin (Desktop)</button>
         <button className="reset" title="Reset demo data" onClick={()=>{localStorage.clear(); location.hash='#/customer/home'; location.reload();}}>↺</button>
       </div>
       {route.role==='customer' && <Customer {...ctx} />}
@@ -282,6 +285,7 @@ function Admin({ orders, setOrders, riders }) {
   const st = s => riders.filter(r=>r.status===s).length;
   return (<div className="page">
     <h2 className="ahead">Admin · Porur Hub</h2>
+    <a className="note" style={{display:'block'}} href="#/admin-desktop/overview">🖥️ Open full desktop dashboard →</a>
     <div className="kpis">
       <div><b>{orders.length + 38}</b><small>Orders today</small></div>
       <div><b>{rs(revenue + 14250)}</b><small>GMV today</small></div>
