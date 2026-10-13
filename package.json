@@ -1,1 +1,23 @@
-{"name":"porur-delivery-app","private":true,"version":"0.1.0","type":"module","scripts":{"dev":"vite --host","build":"vite build","preview":"vite preview --host"},"dependencies":{"firebase":"^13.0.0","react":"^18.3.1","react-dom":"^18.3.1","recharts":"^2.15.4"},"devDependencies":{"@vitejs/plugin-react":"^4.3.3","playwright":"1.48","vite":"^5.4.10"}}
+{
+  "name": "porur-delivery-app",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "vite build",
+    "preview": "vite preview --host",
+    "build:emulator": "vite build --mode emulator"
+  },
+  "dependencies": {
+    "firebase": "^13.0.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "recharts": "^2.15.4"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.3",
+    "playwright": "1.48",
+    "vite": "^5.4.10"
+  }
+}
