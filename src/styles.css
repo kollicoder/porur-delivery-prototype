@@ -60,3 +60,9 @@ button{font:inherit;cursor:pointer;border:0;background:none;color:inherit}
 .bars{display:flex;align-items:flex-end;gap:3px;height:96px;background:#fff;border-radius:12px;padding:8px} .bars div{flex:1;background:#16a34a;border-radius:3px 3px 0 0;min-height:2px}
 
 .syncbar{background:#fef3c7;padding:8px 12px;font-size:13px}.syncbar.err{background:#fee2e2;color:#991b1b}
+
+.toast{position:fixed;top:56px;left:50%;transform:translateX(-50%);background:#111827;color:#fff;padding:10px 14px;border-radius:12px;z-index:50;font-size:13px;max-width:92vw;box-shadow:0 6px 18px rgba(0,0,0,.25)}
+.chipbtn{background:#fff;border:1px solid #d1d5db;border-radius:20px;padding:6px 12px;font-size:13px;margin:6px 6px 0 0}.chipbtn.on{background:#16a34a;color:#fff;border-color:#16a34a}
+.gpsbar{font-size:14px}.row2{display:flex;flex-wrap:wrap}
+.emoji-pin{text-align:center}.emoji-pin div{font-size:24px;line-height:26px}.emoji-pin small{display:inline-block;background:#fff;border-radius:6px;padding:0 4px;font-size:10px;font-weight:700;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+.login .hero{margin-top:10px}
