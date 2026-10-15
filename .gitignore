@@ -5,3 +5,4 @@ server.log
 ghlogin.log
 tunnel.log
 .reponame
+dist-emu

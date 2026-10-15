@@ -5,11 +5,12 @@ import { STEPS, DONE } from './store.js';
 import { api, backendInfo } from './live.js';
 import LiveMap, { HUB } from './map.jsx';
 import './desktop.css';
+import { BRAND } from './brand.js';
 
-const rs = n => '₹' + Math.round(n).toLocaleString('en-IN');
+const rs = n => '₹' + Math.round(+n || 0).toLocaleString('en-IN');
 const NAV = [['overview','📊','Overview'],['orders','📦','Live Orders'],['riders','🛵','Riders'],['stores','🏪','Stores / Vendors'],['customers','👥','Customers'],['errands','📝','Errands'],['payments','💳','Payments'],['reports','📈','Reports'],['users','🔑','Users & Access'],['settings','⚙️','Settings']];
 const HOURS = [3,1,0,1,2,5,9,12,8,6,7,9,6,4,5,8,11,14,12,9,6,4].map((v,i)=>({ h:`${(i+2)%24}:00`, orders:v }));
-const COLORS = ['#16a34a','#f59e0b','#3b82f6','#ef4444'];
+const COLORS = ['#1F7A3A','#C98A00','#1D4ED8','#B42318'];
 const SHIFTS = ['6AM–2PM','2PM–10PM','10PM–6AM'];
 const RATING = [4.8,4.6,4.7,4.5,4.4,4.9,4.6,4.3,4.7,4.5];
 const BASE = 12000, PER_TASK = 25;
@@ -30,7 +31,7 @@ export default function AdminDesktop(ctx) {
   const pendingRx = ctx.orders.filter(o => o.items.some(([n])=>PRODUCTS.find(p=>p.name===n)?.rx) && o.rxStatus==='pending').length;
   return (<div className="dk">
     <aside className="side">
-      <div className="brand">🛵 <b>Porur Delivery</b><small>Admin console</small></div>
+      <div className="brand"><span className="blogo">🛵</span><b>{BRAND.name}</b><small>Admin console · Porur hub</small></div>
       {NAV.map(([k,i,n]) => <a key={k} href={`#/admin-desktop/${k}`} className={page===k?'on':''}>{i} {n}{k==='orders'&&pendingRx>0&&<em>{pendingRx}</em>}</a>)}
       <div className="sidefoot"><a href="#/customer/home">📱 Customer app</a><a href="#/rider/home">🛵 Rider app</a><a href="#/admin/home">📱 Mobile admin</a></div>
     </aside>
@@ -69,13 +70,14 @@ function Overview({ orders, riders, rx, go }) {
       <Kpi label="Pending prescriptions" value={pending} sub="Needs pharmacist" tone={pending?'alert':''}/>
     </div>
     <div className="grid2">
-      <div className="panel"><h3>Orders by hour</h3><ResponsiveContainer width="100%" height={240}><BarChart data={HOURS}><CartesianGrid strokeDasharray="3 3" vertical={false}/><XAxis dataKey="h" fontSize={11}/><YAxis fontSize={11}/><Tooltip/><Bar dataKey="orders" fill="#16a34a" radius={[4,4,0,0]}/></BarChart></ResponsiveContainer></div>
+      <div className="panel"><h3>Orders by hour</h3><ResponsiveContainer width="100%" height={240}><BarChart data={HOURS}><CartesianGrid strokeDasharray="3 3" vertical={false}/><XAxis dataKey="h" fontSize={11}/><YAxis fontSize={11}/><Tooltip/><Bar dataKey="orders" fill="#15140F" radius={[4,4,0,0]}/></BarChart></ResponsiveContainer></div>
       <div className="panel"><h3>Category mix</h3><ResponsiveContainer width="100%" height={240}><PieChart><Pie data={mix} dataKey="value" nameKey="name" innerRadius={55} outerRadius={90} label>{mix.map((_,i)=><Cell key={i} fill={COLORS[i]}/>)}</Pie><Legend/><Tooltip/></PieChart></ResponsiveContainer></div>
     </div>
     <div className="grid2">
       <div className="panel"><h3>Live map · Porur zone (3–5 km) <small className="muted">OpenStreetMap · rider GPS</small></h3><ZoneMap riders={riders} orders={orders}/></div>
       <div className="panel"><h3>Recent orders</h3><OrderTable orders={orders.slice(0,7)} riders={riders}/></div>
     </div>
+    <BreakevenCard/>
   </>);
 }
 function ZoneMap({ riders, orders }) {
@@ -183,6 +185,20 @@ function Payments({ orders }) {
     </div></>);
 }
 
+/** v0.5: breakeven gets its own card instead of a thin line dwarfed by the bars. Sample model numbers. */
+function BreakevenCard() {
+  const today = 110, need = 443, pct = Math.round(today / need * 100);
+  return (<div className="panel bcard" data-testid="breakeven-card"><div className="row"><h3>Breakeven <Sample/></h3><span className="muted">Model: ₹3.8 L/month fixed ≈ ₹12.7k/day</span></div>
+    <div className="bgrid">
+      <div><small>Orders/day needed</small><b>~{need}</b><span>at ₹29 contribution/order</span></div>
+      <div><small>Orders/day today</small><b>~{today}</b><span>10 riders' capacity ≈ 110–200</span></div>
+      <div><small>With ₹60/order</small><b>~215</b><span>₹199 min order + fees</span></div>
+      <div><small>Payback</small><b>~Month 52</b><span>optimistic: month 14</span></div>
+    </div>
+    <div className="bbar" aria-label={`${pct}% of breakeven volume`}><i style={{width:pct+'%'}}/><em style={{left:'100%'}}>Breakeven</em></div>
+    <p className="small" style={{margin:'6px 0 0'}}><b>{pct}%</b> of the daily volume needed to cover fixed costs.</p>
+  </div>);
+}
 function Reports() {
   const [mode, setMode] = useState('daily');
   // model-like: ~₹3.8L/month fixed cost ≈ ₹12.7k/day; ~₹29 contribution/order today rising toward ₹60
@@ -191,11 +207,11 @@ function Reports() {
   const data = mode==='daily'?daily:weekly;
   return (<><h1>Reports <Sample/></h1>
     <div className="toolbar"><button className={mode==='daily'?'on':''} onClick={()=>setMode('daily')}>Daily (14 days)</button><button className={mode==='weekly'?'on':''} onClick={()=>setMode('weekly')}>Weekly (12 weeks)</button></div>
-    <div className="panel"><h3>Revenue vs cost vs breakeven line</h3>
+    <BreakevenCard/>
+    <div className="panel"><h3>Revenue vs cost</h3>
       <ResponsiveContainer width="100%" height={340}><ComposedChart data={data}><CartesianGrid strokeDasharray="3 3" vertical={false}/><XAxis dataKey="d" fontSize={11}/><YAxis fontSize={11} tickFormatter={v=>'₹'+(v/1000).toFixed(0)+'k'}/><Tooltip formatter={v=>rs(v)}/><Legend/>
-        <Bar dataKey="revenue" name="Our revenue (commission + fees)" fill="#16a34a" radius={[4,4,0,0]}/><Bar dataKey="cost" name="Total cost" fill="#f87171" radius={[4,4,0,0]}/><Line dataKey="breakeven" name="Fixed-cost breakeven line" stroke="#111827" strokeDasharray="6 4" dot={false} strokeWidth={2}/></ComposedChart></ResponsiveContainer>
+        <Bar dataKey="revenue" name="Our revenue (commission + fees)" fill="#1F7A3A" radius={[4,4,0,0]}/><Bar dataKey="cost" name="Total cost" fill="#E8A598" radius={[4,4,0,0]}/></ComposedChart></ResponsiveContainer>
       <p className="muted small">Sample numbers shaped like the business model: ~₹3.8 lakh/month fixed costs (≈₹12.7k/day), revenue per order rising from ~₹30 toward ~₹60 as basket size and fees grow. Not real data.</p></div>
-    <div className="kpis7 k4"><Kpi label="Orders/day needed (breakeven)" value="~443" sub="At ₹29/order today"/><Kpi label="With ₹60/order" value="~215/day"/><Kpi label="Rider capacity (10)" value="~110–200/day"/><Kpi label="Realistic payback" value="~Month 52" sub="Optimistic: month 14"/></div>
   </>);
 }
 
