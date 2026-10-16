@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { BRAND, isTestMode } from './brand.js';
 import { api, backendInfo } from './live.js';
-const DEMO = [['+1 650-555-0001', 'Customer'], ['+1 650-555-0004', 'Rider (Karthik)']];
+const DEMO = [['+91 90000 00001', 'Customer'], ['+91 90000 00004', 'Rider (Karthik)']];
 export function Login({ title = 'Sign in', staff }) {
   const [phone, setPhone] = useState('+91 '); const [code, setCode] = useState(''); const [step, setStep] = useState('phone'); const [busy, setBusy] = useState(false); const [err, setErr] = useState(null);
   const [left, setLeft] = useState(0); useEffect(() => { if (left <= 0) return; const t = setTimeout(() => setLeft(l => l - 1), 1000); return () => clearTimeout(t); }, [left]);
