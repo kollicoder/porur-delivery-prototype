@@ -1,0 +1,26 @@
+/* v0.6 — new models, same ding-dong language (cream / black / yellow, 48px targets, AA contrast) */
+.mways{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.mways button{position:relative;min-height:108px;border-radius:22px;padding:12px;text-align:left;border:0;overflow:hidden;color:var(--ink)}
+.mways button b{display:block;font-family:var(--fd);font-size:17px;max-width:78%} .mways button small{display:block;font-family:var(--ft);font-size:11px}
+.mways button .k{font-size:11px;font-weight:700} .mways button .em{position:absolute;right:8px;bottom:4px;font-size:34px}
+.mways .dark{background:var(--ink);color:#fff} .mways .dark .k{color:var(--yellow)} .mways .dark small{color:#E9E4D8}
+.hero6{border-radius:26px;padding:18px;margin-bottom:10px} .hero6 h2{font-family:var(--fd);font-size:25px;line-height:1.1;margin:4px 0} .hero6 .k{font-size:12px;font-weight:800;letter-spacing:.3px}
+.hero6.dark{background:var(--ink);color:#fff} .hero6.dark .k{color:var(--yellow)} .hero6.dark .ta,.hero6.dark small{color:#E9E4D8}
+.mbar{height:18px;border-radius:999px;background:#3A372F;overflow:hidden;border:1px solid #57554D} .mbar.lt{background:var(--soft);border-color:var(--line)} .mbar i{display:block;height:100%;background:var(--yellow);border-radius:999px}
+.tiles2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px} .tiles2>div{background:#2A2822;border-radius:16px;padding:10px} .tiles2 b{font-family:var(--fd);font-size:18px;display:block;color:#fff} .tiles2 small{color:#E9E4D8}
+.chiprow{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0} .chiprow .chipbtn{min-height:48px}
+.skurow{display:flex;align-items:center;gap:10px;background:#fff;border:1px solid var(--line);border-radius:18px;padding:10px;margin:6px 0} .skurow.on{border-color:var(--ink)} .skurow .e{font-size:28px;width:36px;text-align:center}
+.skurow .nm{flex:1;min-width:0} .skurow .nm b{display:block}
+.step6{display:flex;align-items:center;gap:6px} .step6 button{width:48px;height:48px;border-radius:24px;background:var(--ink);color:#fff;font-size:22px;font-weight:700;border:0} .step6 span{min-width:42px;text-align:center;font-weight:800}
+.codebox{background:var(--ink);color:#fff;border-radius:20px;padding:14px;margin:8px 0} .codebox b{display:block;font-family:var(--fd);color:var(--yellow);font-size:34px;letter-spacing:6px} .codebox small{color:#E9E4D8}
+.kv{display:flex;justify-content:space-between;gap:10px;padding:3px 0} .kv.b{font-family:var(--fd);font-size:17px}
+.tag6{display:inline-block;border-radius:999px;padding:4px 10px;font-size:12px;font-weight:800;background:var(--soft);color:var(--ink);margin:2px 4px 2px 0} .tag6.g{background:#DDF3E1;color:#14532D} .tag6.y{background:#FFF1C7} .tag6.r{background:#FDE4E1;color:#7A1A12}
+.stars6 button{width:48px;height:48px;font-size:28px;background:none;border:0;color:#B45309}
+.svcgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px} .svcgrid button{min-height:112px;border-radius:22px;padding:12px;text-align:left;background:#fff;border:1px solid var(--line);color:var(--ink)} .svcgrid button.on{background:var(--ink);color:#fff}
+.svcgrid b{display:block;font-family:var(--fd);font-size:17px} .svcgrid .em{font-size:28px}
+.okbar{background:#DDF3E1;color:#14532D;border-radius:16px;padding:12px;font-weight:700;margin:8px 0} .warnbar{background:#FFF1C7;color:#5C3D00;border-radius:16px;padding:12px;font-weight:700;margin:8px 0}
+.v6 .primary{width:100%;margin-top:10px} .v6 .ghost{width:100%;min-height:48px;border-radius:999px;border:1.5px solid var(--ink);background:#fff;color:var(--ink);font-weight:700;margin-top:8px}
+.v6 h3.sec{margin-top:18px}
+/* admin desktop */
+.dk .v6a .kpis6{display:flex;gap:12px;margin-bottom:16px} .dk .v6a button.act{min-height:40px;border-radius:10px;border:0;background:#15140F;color:#fff;font-weight:700;padding:0 14px;cursor:pointer}
+.dk .v6a button.act.y{background:#FFC93C;color:#15140F} .dk .v6a button.act.r{background:#B42318} .dk .v6a button.act.g{background:#1F7A3A} .dk .v6a select,.dk .v6a input{border:1px solid #cbd5e1;border-radius:8px;padding:6px;min-height:36px}

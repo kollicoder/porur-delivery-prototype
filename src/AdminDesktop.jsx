@@ -6,9 +6,12 @@ import { api, backendInfo } from './live.js';
 import LiveMap, { HUB } from './map.jsx';
 import './desktop.css';
 import { BRAND } from './brand.js';
+import { FOOD_STORES } from './models.js';
+import { GroupBuyPage, LunchPage, ServicesPage, DealsPage } from './v6-admin.jsx';
+import './v6.css';
 
 const rs = n => '₹' + Math.round(+n || 0).toLocaleString('en-IN');
-const NAV = [['overview','📊','Overview'],['orders','📦','Live Orders'],['riders','🛵','Riders'],['stores','🏪','Stores / Vendors'],['customers','👥','Customers'],['errands','📝','Errands'],['payments','💳','Payments'],['reports','📈','Reports'],['users','🔑','Users & Access'],['settings','⚙️','Settings']];
+const NAV = [['overview','📊','Overview'],['orders','📦','Live Orders'],['riders','🛵','Riders'],['stores','🏪','Stores / Vendors'],['customers','👥','Customers'],['errands','📝','Errands'],['groupbuy','🧺','Group buy'],['lunch','🍱','Office lunch'],['services','🛠️','Home services'],['deals','🔥','Flash deals'],['payments','💳','Payments'],['reports','📈','Reports'],['users','🔑','Users & Access'],['settings','⚙️','Settings']];
 const HOURS = [3,1,0,1,2,5,9,12,8,6,7,9,6,4,5,8,11,14,12,9,6,4].map((v,i)=>({ h:`${(i+2)%24}:00`, orders:v }));
 const COLORS = ['#1F7A3A','#C98A00','#1D4ED8','#B42318'];
 const SHIFTS = ['6AM–2PM','2PM–10PM','10PM–6AM'];
@@ -26,14 +29,14 @@ export default function AdminDesktop(ctx) {
   const stock = Object.fromEntries(PRODUCTS.map(p=>[p.id, p.inStock!==false])); const setStock = fn => { const n = fn(stock); for (const k in n) if (n[k]!==stock[k]) api.updateProduct(k, { inStock: n[k] }); };
   const rx = Object.fromEntries(ctx.orders.filter(o=>o.rxStatus && o.rxStatus!=='pending').map(o=>[o.id,o.rxStatus]));
   const setRx = fn => { const n = fn(rx); for (const k in n) if (n[k]!==rx[k]) api.updateOrder(k, { rxStatus: n[k], ...(n[k]==='rejected'?{status:'rejected'}:{}) }); };
-  const P = { overview:Overview, orders:Orders, riders:Riders, stores:Stores, customers:Customers, errands:Errands, payments:Payments, reports:Reports, users:Users, settings:Settings }[page] || Overview;
+  const P = { overview:Overview, orders:Orders, riders:Riders, stores:Stores, customers:Customers, errands:Errands, payments:Payments, reports:Reports, users:Users, settings:Settings, groupbuy:GroupBuyPage, lunch:LunchPage, services:ServicesPage, deals:DealsPage }[page] || Overview;
   const x = { ...ctx, q, settings, setSettings, stock, setStock, rx, setRx };
   const pendingRx = ctx.orders.filter(o => o.items.some(([n])=>PRODUCTS.find(p=>p.name===n)?.rx) && o.rxStatus==='pending').length;
   return (<div className="dk">
     <aside className="side">
       <div className="brand"><span className="blogo">🛵</span><b>{BRAND.name}</b><small>Admin console · Porur hub</small></div>
       {NAV.map(([k,i,n]) => <a key={k} href={`#/admin-desktop/${k}`} className={page===k?'on':''}>{i} {n}{k==='orders'&&pendingRx>0&&<em>{pendingRx}</em>}</a>)}
-      <div className="sidefoot"><a href="#/customer/home">📱 Customer app</a><a href="#/rider/home">🛵 Rider app</a><a href="#/admin/home">📱 Mobile admin</a></div>
+      <div className="sidefoot"><a href="#/customer/home">📱 Customer app</a><a href="#/rider/home">🛵 Rider app</a><a href="#/partner/home">🤝 Partner (web)</a><a href="#/admin/home">📱 Mobile admin</a></div>
     </aside>
     <main>
       <div className="top">
@@ -242,16 +245,18 @@ function Users({ users, riders, me }) {
     <div className="panel rxq"><h3>🔔 Access requests ({pending.length})</h3>
       {!pending.length && <p className="muted">No pending requests.</p>}
       {pending.map(u => <div key={u.uid} className="rxrow" data-testid={'req-' + u.phone}><b>{u.name || '—'}</b><span>{u.phone}</span>
-        <span>wants <b>{u.request.role}</b> {u.request.storeId ? '· ' + (STORES.find(s => s.id === u.request.storeId)?.name || u.request.storeId) : ''}{u.request.riderId ? '· ' + (riders.find(r => r.id === u.request.riderId)?.name || u.request.riderId) : ''}</span>
+        <span>wants <b>{u.request.role}</b> {u.request.storeId ? '· ' + ([...STORES, ...FOOD_STORES].find(s => s.id === u.request.storeId)?.name || u.request.storeId) : ''}{u.request.riderId ? '· ' + (riders.find(r => r.id === u.request.riderId)?.name || u.request.riderId) : ''}</span>
         <span className="muted small">{new Date(u.request.at).toLocaleString('en-IN')}</span>
-        <button className="ok" data-testid={'approve-' + u.phone} onClick={() => api.setUserRole(u.uid, u.request.role, { storeId: u.request.storeId, riderId: u.request.riderId })}>Approve</button>
+        {['cook', 'pro'].includes(u.request.role) ? <a className="ok" style={{ padding: '6px 10px', borderRadius: 8 }} href={'#/admin-desktop/' + (u.request.role === 'cook' ? 'lunch' : 'services')}>Review FSSAI / KYC →</a>
+          : <button className="ok" data-testid={'approve-' + u.phone} onClick={() => api.setUserRole(u.uid, u.request.role, { storeId: u.request.storeId, riderId: u.request.riderId })}>Approve</button>}
         <button className="no" onClick={() => api.rejectRequest(u.uid)}>Reject</button></div>)}
     </div>
     <div className="panel"><div className="row"><h3>All users ({users.length})</h3><input placeholder="Filter by phone/name" value={filter} onChange={e => setFilter(e.target.value)} style={{ border: '1px solid #cbd5e1', borderRadius: 8, padding: 6 }} /></div>
       <table className="dt"><thead><tr><th>Phone</th><th>Name</th><th>Role</th><th>Store / Rider</th><th>Joined</th></tr></thead><tbody>
         {users.filter(u => !filter || (u.phone + ' ' + (u.name || '')).includes(filter)).map(u => <tr key={u.uid}><td>{u.phone}{u.uid === me?.uid ? ' (you)' : ''}</td><td>{u.name || '—'}</td>
-          <td><select value={roleOf(u)} onChange={e => setRole(u, e.target.value)}>{['customer', 'vendor', 'rider', 'admin'].map(r => <option key={r}>{r}</option>)}</select></td>
-          <td>{u.role === 'vendor' ? <select value={u.storeId} onChange={e => api.setUserRole(u.uid, 'vendor', { storeId: e.target.value })}>{STORES.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
+          <td><select value={roleOf(u)} onChange={e => setRole(u, e.target.value)}>{['customer', 'vendor', 'rider', 'admin', 'leader', 'cook', 'pro'].map(r => <option key={r} disabled={(r === 'cook' && !u.cookId) || (r === 'pro' && !u.proId) || r === 'leader'}>{r}</option>)}</select></td>
+          <td>{u.role === 'vendor' ? <select value={u.storeId} onChange={e => api.setUserRole(u.uid, 'vendor', { storeId: e.target.value })}>{[...STORES, ...FOOD_STORES].map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
+            : u.role === 'leader' ? `community ${u.communityId}` : u.role === 'cook' ? `cook ${u.cookId}` : u.role === 'pro' ? `pro ${u.proId}`
             : u.role === 'rider' ? <select value={u.riderId} onChange={e => api.setUserRole(u.uid, 'rider', { riderId: e.target.value })}>{riders.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</select> : '—'}</td>
           <td className="muted">{u.createdAt ? new Date(u.createdAt).toLocaleDateString('en-IN') : ''}</td></tr>)}
       </tbody></table>
