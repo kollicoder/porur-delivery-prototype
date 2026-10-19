@@ -8,6 +8,9 @@ import { Login, RequestAccess } from './auth.jsx';
 import { useLS, STEPS, DONE } from './store.js';
 import AdminDesktop from './AdminDesktop.jsx';
 import { BRAND, isTestMode } from './brand.js';
+import './v6.css';
+import { MoreWays, MeterW, LeaderW, LunchW, ServicesW, JobW, DealsW, useDealAlerts } from './v6-customer.jsx';
+import { RiderV6, Partner } from './v6-partner.jsx';
 const useOnline = () => { const [on, setOn] = useState(navigator.onLine); useEffect(() => { const u = () => setOn(navigator.onLine); addEventListener('online', u); addEventListener('offline', u); return () => { removeEventListener('online', u); removeEventListener('offline', u); }; }, []); return on; };
 const Sk = ({ h=16, w='100%', r=12, style }) => <div className="sk" style={{ height:h, width:w, borderRadius:r, ...style }} />;
 export const SkList = ({ n=4 }) => <div data-testid="skeleton">{Array.from({length:n}).map((_,i)=><div key={i} className="card" style={{display:'flex',gap:12,alignItems:'center'}}><Sk h={56} w={56} r={14}/><div style={{flex:1,display:'grid',gap:8}}><Sk w="70%"/><Sk h={12} w="40%"/></div></div>)}</div>;
@@ -19,7 +22,7 @@ const CATS = [
   { id:'med', label:'Medicines', ta:'மருந்துகள்', emoji:'💊', color:'#e3eeff' },
   { id:'rider', label:'Book a Rider', ta:'ரைடர் புக்', emoji:'🛵', color:'#ffe4e4' },
 ];
-const ROLES = ['customer','rider','admin','admin-desktop'];
+const ROLES = ['customer','rider','admin','admin-desktop','partner'];
 const readHash = () => {
   const [, role, screen, arg] = location.hash.replace(/^#/, '').split('/');
   if (!ROLES.includes(role)) {
@@ -51,7 +54,7 @@ export default function App() {
   return (
     <div className="phone">
       <div className="switcher">
-        {['customer','rider','admin'].map(r => <button key={r} className={route.role===r?'on':''} onClick={()=>go(r)}>{r[0].toUpperCase()+r.slice(1)}</button>)}
+        {['customer','rider','admin','partner'].map(r => <button key={r} className={route.role===r?'on':''} onClick={()=>go(r)}>{r[0].toUpperCase()+r.slice(1)}</button>)}
         <button onClick={()=>go('admin-desktop','overview')}>Admin (Desktop)</button>
         {notifySupported && Notification.permission==='default' && <button className="reset" title="Enable notifications" onClick={()=>Notification.requestPermission()}>🔔</button>}
         <button className="reset" title={'Sign out · '+backendInfo.projectId+(backendInfo.emulatorHost?' (emulator)':'')} onClick={()=>api.logout()}>⎋</button>
@@ -61,6 +64,7 @@ export default function App() {
       {!gate && route.role==='customer' && <Customer {...ctx} />}
       {!gate && route.role==='rider' && <Rider {...ctx} />}
       {!gate && route.role==='admin' && <Admin {...ctx} />}
+      {!gate && route.role==='partner' && <Partner {...ctx} />}
     </div>
   );
 }
@@ -69,7 +73,9 @@ export default function App() {
 function Customer(ctx) {
   const { route, go, cart } = ctx;
   const count = Object.values(cart).reduce((a,b)=>a+b,0);
-  const S = { home:Home, list:ProductList, search:Search, voice:Voice, cart:Cart, checkout:Checkout, track:Track, rider:BookRider, profile:Profile, credits:Credits }[route.screen] || Home;
+  const S = { home:Home, list:ProductList, search:Search, voice:Voice, cart:Cart, checkout:Checkout, track:Track, rider:BookRider, profile:Profile, credits:Credits,
+    meter:MeterW, leader:LeaderW, lunch:LunchW, services:ServicesW, job:JobW, deals:DealsW }[route.screen] || Home;
+  useDealAlerts(ctx.user);
   const L = useLang(); const on = k => route.screen===k ? 'on' : '';
   return (<>
     <S {...ctx} />
@@ -100,6 +106,7 @@ function Home({ go }) {
       <span className="k">{c.id==='rider'?'Anything, anywhere':c.id==='med'?'24×7':'20–30 min'}</span><b>{c.label}</b><small className="ta">{c.ta}</small><span className="em">{c.emoji}</span></button>)}</div>
     <button className="voicebig" onClick={()=>go('customer','voice')}><div style={{flex:1}}><b>{L.t('Just say your list','உங்கள் பட்டியலைச் சொல்லுங்கள்')}</b><span className="ta">தமிழ் or English · "2 kg tomato, 1 litre milk"</span></div><span className="m">🎤</span></button>
     <div className="promos"><div style={{background:'var(--green)',color:'#fff'}}><b style={{color:'#fff'}}>Free delivery above ₹{SETTINGS.free}</b><small>Applied at checkout</small></div><div style={{background:'var(--lilac)'}}><b>Medicines all night</b><small>24×7 pharmacy tie-up</small></div></div>
+    <MoreWays go={go} t={L.t} />
     <h3 className="sec">{L.t('Stores near you','அருகிலுள்ள கடைகள்')}</h3>
     {STORES.map(s => <div key={s.id} className="card store" onClick={()=>go('customer','list',s.cat)}>
       <div className="sicon" style={{background:{fv:'#DDF3E1',grocery:'#FFF1C7',med:'#E6DEFF'}[s.cat]}}>{CATS.find(c=>c.id===s.cat).emoji}</div>
@@ -117,14 +124,15 @@ function Profile({ go, me, user }) {
     <div className="card" style={{padding:'0 14px'}}>
       <button className="prow" onClick={()=>go('customer','track')}><span>📦</span>{L.t('My orders','எனது ஆர்டர்கள்')}<span>›</span></button>
       <button className="prow" onClick={()=>go('customer','rider')}><span>🛵</span>{L.t('Book a rider','ரைடர் புக்')}<span>›</span></button>
+      <button className="prow" onClick={()=>go('customer','meter')}><span>🧺</span>{L.t('Group buy & wallet','குழு வாங்குதல்')}<span>›</span></button>
       <button className="prow" data-testid="open-credits" onClick={()=>go('customer','credits')}><span>ℹ️</span>{L.t('About & photo credits','பற்றி')}<span>›</span></button></div>
     <button className="primary" style={{background:'#fff',color:'var(--ink)',border:'1.5px solid var(--ink)'}} onClick={()=>api.logout()}>{L.t('Sign out','வெளியேறு')}</button>
-    <p className="muted small" style={{textAlign:'center'}}>{BRAND.name} · v0.5</p>
+    <p className="muted small" style={{textAlign:'center'}}>{BRAND.name} · v0.6</p>
   </div>);
 }
 function Credits({ go }) {
   return (<div className="page"><Header title="About & credits" back={['profile']} go={go}/>
-    <div className="card"><b>{BRAND.name}</b><p className="muted small">Hyperlocal delivery for {BRAND.area}. Version 0.5.</p></div>
+    <div className="card"><b>{BRAND.name}</b><p className="muted small">Hyperlocal delivery for {BRAND.area}. Version 0.6 — group buy, office lunch, home services, surplus deals.</p></div>
     <div className="card"><b>Maps</b><p className="muted small">© OpenStreetMap contributors · Leaflet.</p></div>
     <div className="card"><b>Fonts</b><p className="muted small">Bricolage Grotesque, Plus Jakarta Sans, Noto Sans Tamil — SIL Open Font License.</p></div>
     <div className="card"><b>Product imagery</b><p className="muted small">Product photos in the design mock-ups are placeholders; store-supplied photos and their credits will be listed here.</p></div>
@@ -394,6 +402,7 @@ function Rider({ orders, setOrders, riders, setRiders, me: profile, isAdmin }) {
       {msg[o.id] && <p className="err">{msg[o.id]}</p>}
       {o.status===4 && <small className="muted">The code is shown only in the customer's app. Delivery is confirmed when it matches.</small>}
     </div>)}
+    <RiderV6 rid={rid} />
     {done.length>0 && <><h3 className="sec">Completed</h3>{done.map(o=><div key={o.id} className="card small">✅ {o.id} · {rs(o.total)}</div>)}</>}
   </div>);
 }

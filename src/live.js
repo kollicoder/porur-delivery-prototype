@@ -7,18 +7,23 @@ import { getFirestore, connectFirestoreEmulator, collection, doc, onSnapshot, se
 import { PRODUCTS, SETTINGS, RIDERS } from './data.js';
 import { pickRider } from './dispatch.js';
 import { sendPushMany } from './push.js';
+import { ModelsApi } from './modelsApi.js';
 
 const E = import.meta.env;
 const projectId = E.VITE_FIREBASE_PROJECT_ID || 'demo-porur';
 const emulatorHost = E.VITE_FIREBASE_EMULATOR_HOST ?? (projectId.startsWith('demo-') ? location.hostname : '');
 const app = initializeApp({ projectId, apiKey: E.VITE_FIREBASE_API_KEY || 'demo-api-key', appId: E.VITE_FIREBASE_APP_ID || '1:000:web:demo', authDomain: E.VITE_FIREBASE_AUTH_DOMAIN || `${projectId}.firebaseapp.com` });
-export const auth = getAuth(app); const db = getFirestore(app);
-if (emulatorHost) { connectAuthEmulator(auth, `http://${emulatorHost}:9099`, { disableWarnings: true }); connectFirestoreEmulator(db, emulatorHost, 8080); }
+export const auth = getAuth(app); export const db = getFirestore(app);
+if (emulatorHost) { connectAuthEmulator(auth, `http://${emulatorHost}:9099`, { disableWarnings: true }); connectFirestoreEmulator(db, emulatorHost, Number(E.VITE_FIRESTORE_EMULATOR_PORT || 8080)); }
 // Emulator, or Firebase *test* phone numbers (opt-in with ?test=1 / localStorage.pd_test): skip reCAPTCHA. Real numbers always need reCAPTCHA.
 const testMode = !!emulatorHost || /[?&]test=1/.test(location.search) || localStorage.getItem('pd_test') === '1';
 if (/[?&]test=1/.test(location.search)) localStorage.setItem('pd_test', '1');
 if (testMode) auth.settings.appVerificationDisabledForTesting = true;
 export const backendInfo = { projectId, emulatorHost, testMode };
+/** v0.6 models (group buy, office lunch, home services, flash deals) — same code as the native apps. */
+let myName = '';
+export const setModelsName = n => { myName = n || ''; };
+export const models = new ModelsApi(db, () => auth.currentUser ? { uid: auth.currentUser.uid, phone: auth.currentUser.phoneNumber || '', name: myName || auth.currentUser.phoneNumber || 'Customer' } : undefined);
 
 const STORE_POS = { s1: { lat: 13.0359, lng: 80.1574 }, s2: { lat: 13.0382, lng: 80.1617 }, s3: { lat: 13.0331, lng: 80.1532 } };
 export const FLOW = ['placed', 'accepted', 'ready', 'picked_up', 'on_the_way', 'delivered'];
@@ -44,7 +49,7 @@ export const api = {
   async logout() { await signOut(auth); ready = new Promise(r => (resolveReady = r)); },
   uid: () => auth.currentUser?.uid,
   updateMe: w(patch => { const p = { ...patch, updatedAt: new Date().toISOString() }; if (patch.request === null) p.request = deleteField(); return updateDoc(doc(db, 'users', auth.currentUser.uid), p); }),
-  setUserRole: w((uid, role, extra = {}) => updateDoc(doc(db, 'users', uid), { role: role || deleteField(), storeId: extra.storeId || deleteField(), riderId: extra.riderId || deleteField(), request: deleteField(), updatedAt: new Date().toISOString() })),
+  setUserRole: w((uid, role, extra = {}) => updateDoc(doc(db, 'users', uid), { role: role || deleteField(), storeId: extra.storeId || deleteField(), riderId: extra.riderId || deleteField(), cookId: extra.cookId || deleteField(), proId: extra.proId || deleteField(), communityId: extra.communityId || deleteField(), request: deleteField(), updatedAt: new Date().toISOString() })),
   rejectRequest: w(uid => updateDoc(doc(db, 'users', uid), { request: deleteField() })),
   updateOrder: w((id, patch) => updateDoc(doc(db, 'orders', id), clean({ ...patch, updatedAt: new Date().toISOString() }))),
   updateProduct: w((id, patch) => updateDoc(doc(db, 'products', id), patch)),
@@ -122,7 +127,7 @@ export function useLive() {
       onSnapshot(collection(db, 'users'), s => { if (s.metadata.fromCache) return; setIsAdmin(true); setUsers(s.docs.map(d => ({ uid: d.id, ...d.data() }))); }, () => setIsAdmin(false)),
       onSnapshot(query(collection(db, 'orders'), where('customerUid', '==', user.uid)), s => setOwn(s.docs.map(d => d.data())), err),
       onSnapshot(collection(db, 'riders'), s => s.size && setRidersState(s.docs.map(d => d.data()).sort((a, b) => +a.id.slice(1) - +b.id.slice(1))), err),
-      onSnapshot(collection(db, 'products'), s => { if (!s.size) return; const ps = s.docs.map(d => d.data()).sort((a, b) => +a.id.slice(1) - +b.id.slice(1)); PRODUCTS.splice(0, PRODUCTS.length, ...ps); bump(x => x + 1); }, err),
+      onSnapshot(collection(db, 'products'), s => { if (!s.size) return; const ps = s.docs.map(d => d.data()).filter(p => p.cat !== 'food').sort((a, b) => +a.id.slice(1) - +b.id.slice(1)); PRODUCTS.splice(0, PRODUCTS.length, ...ps); bump(x => x + 1); }, err),
       onSnapshot(doc(db, 'settings', 'app'), s => { if (s.exists()) { Object.assign(SETTINGS, s.data()); bump(x => x + 1); } }, err),
     ];
     return () => u.forEach(f => f());
@@ -170,5 +175,6 @@ export function useLive() {
     const prev = ridersRef.current, next = typeof fn === 'function' ? fn(prev) : fn;
     next.forEach(n => { const o = prev.find(x => x.id === n.id); if (o && (o.status !== n.status || o.today !== n.today)) api.updateRider(n.id, { status: n.status, today: n.today }).catch(err); });
   }, []);
+  useEffect(() => setModelsName(me?.name || user?.phoneNumber), [me?.name, user?.phoneNumber]);
   return { user, me, isAdmin, users, orders, allOrders: raw, setOrders, riders, setRiders, uid: user?.uid, error, name: me?.name || user?.phoneNumber || '' };
 }
