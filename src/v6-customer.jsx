@@ -38,7 +38,7 @@ export function MeterW({ go, me, route }) {
   const tot = useMemo(() => basketTotals(Object.entries(sel).map(([skuId, qty]) => ({ skuId, qty })), list?.skus || []), [sel, list]);
   if (!comms || !meters) return <div className="page v6"><H title="Group buy" go={go} /><Sk n={4} /></div>;
   if (!meter) return <div className="page v6"><H title="Group buy" go={go} /><Empty testid="meter-empty" emoji="🧺" title="No group buy open right now" body="A new weekly meter opens every Sunday." /></div>;
-  const fc = meterForecast(meter, now); const open = meter.status === 'open' && now < meter.cutoffMs; const current = mine.find(o => o.meterId === meter.id && o.status !== 'cancelled');
+  const fc = meterForecast(meter, now); const open = meter.status === 'open' && now < meter.cutoffMs; const due = mine.find(o => o.meterId !== meter?.id && o.finalTier && o.status !== 'cancelled' && o.handoverStatus !== 'handed'); /* last week's locked basket still to be delivered */ const current = mine.find(o => o.meterId === meter.id && o.status !== 'cancelled');
   const community = comms.find(c => c.id === cid); const bal = walletBalance(wallet);
   const share = () => { const text = shareText(meter, joinLink(cid || undefined)); if (navigator.share) navigator.share({ text }).catch(() => {}); else window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank'); };
   const commit = async () => { setErr(''); setOk(''); if (!community) return setErr('Pick your apartment / community first.'); if (!flat.trim()) return setErr('Add your flat / door number.');
@@ -55,6 +55,7 @@ export function MeterW({ go, me, route }) {
     <div className="card" data-testid="meter-tiers"><Kv k="🟡 Meter fills (100 baskets)" v="Fill price · 7–9 am" /><Kv k="⚪ Doesn't fill by Sat 9 pm" v="Sunday price · Sun 9–11 am" />
       <p className="muted small">You commit at the Sunday price — the most you'll pay. Pay cash or UPI to your community leader on delivery. If it fills you simply pay the lower price. Line refunds go to your Porur wallet and come off your next basket.</p></div>
     {bal > 0 && <div className="okbar" data-testid="meter-wallet">👛 Wallet: {rs(bal)} credit — applied to your next basket</div>}
+    {due && <MyBasket o={due} drops={drops} open={false} />}
     {current ? <MyBasket o={current} drops={drops} open={open} /> : !open ? <div className="warnbar" data-testid="meter-closed">This week's meter is closed — the next one opens shortly.</div> : <>
       <h3 className="sec">1. Your community <span className="ta small">உங்கள் குடியிருப்பு</span></h3>
       <Chips value={cid} set={setCid} opts={comms.map(c => [c.id, c.name])} testid="comm" />
@@ -75,7 +76,7 @@ export function MeterW({ go, me, route }) {
     </>}
     {ok && <div className="okbar" data-testid="meter-ok">✅ {ok}</div>}
     <h3 className="sec">Past baskets</h3>
-    {mine.filter(o => o.id !== current?.id).length === 0 ? <p className="muted">Nothing yet.</p> : mine.filter(o => o.id !== current?.id).map(o => <div key={o.id} className="card"><Kv k={`${o.id} · ${o.lines.length} items`} v={o.status} /><Kv k={o.finalTier ? `Final (${o.finalTier})` : 'Sunday price'} v={rs(o.amountDue ?? o.finalAmount ?? o.sundayTotal)} /></div>)}
+    {mine.filter(o => o.id !== current?.id && o.id !== due?.id).length === 0 ? <p className="muted">Nothing yet.</p> : mine.filter(o => o.id !== current?.id && o.id !== due?.id).map(o => <div key={o.id} className="card"><Kv k={`${o.id} · ${o.lines.length} items`} v={o.status} /><Kv k={o.finalTier ? `Final (${o.finalTier})` : 'Sunday price'} v={rs(o.amountDue ?? o.finalAmount ?? o.sundayTotal)} /></div>)}
     {me?.role === 'leader' && <button className="primary" data-testid="open-leader" onClick={() => go('customer', 'leader')}>👑 Open leader dashboard</button>}
     {wallet.length > 0 && <><h3 className="sec">Wallet</h3>{wallet.map(w => <Kv key={w.id} k={`${w.reason} · ${w.createdAt.slice(0, 10)}`} v={(w.amount > 0 ? '+' : '') + rs(w.amount)} />)}</>}
   </div>;
@@ -98,22 +99,25 @@ export function LeaderW({ go, me }) {
   if (me?.role !== 'leader' || !cid) return <div className="page v6"><H title="Leader" go={go} back="meter" /><Empty testid="leader-none" emoji="👑" title="Leader dashboard" body="Community leaders are appointed by Porur (5% of delivered sales)." /></div>;
   if (!orders) return <div className="page v6"><H title="Leader" go={go} back="meter" /><Sk /></div>;
   const comm = comms.find(c => c.id === cid); const meter = meters.find(m => m.status === 'open') || meters[0]; const live = orders.filter(o => o.status !== 'cancelled'); const wk = live.filter(o => o.meterId === meter?.id);
-  const e1 = leaderEarnings(wk), e2 = leaderEarnings(live); const drop = drops.find(d => d.status !== 'delivered');
+  const lastM = live.filter(o => o.status === 'locked').sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''))[0]?.meterId; const batch = lastM ? live.filter(o => o.meterId === lastM) : []; /* closed batch the leader hands over at the gate */
+  const e1 = leaderEarnings(batch.length ? batch : wk), e2 = leaderEarnings(live); const drop = drops.find(d => d.status !== 'delivered');
   return <div className="page v6" data-testid="leader-screen"><H title={'👑 ' + (comm?.name || cid)} go={go} back="meter" />
     <p className="ta small">குடியிருப்பு தலைவர் · gate: {comm?.gate}</p>
     {meter && <div className="card"><MeterBar light count={meter.count} threshold={meter.threshold} testid="leader-meter" /><p className="muted small">{wk.length} from your community this week</p>
       <button className="primary y" data-testid="leader-share" onClick={() => window.open('https://wa.me/?text=' + encodeURIComponent(shareText(meter, joinLink(cid))), '_blank')}>📣 Share join link</button></div>}
-    <div className="stats3"><div data-testid="leader-earn-week"><b>{rs(e1.commission)}</b><small>This week (5%)</small></div><div><b>{e1.delivered}</b><small>Handed</small></div><div data-testid="leader-earn-all"><b>{rs(e2.commission)}</b><small>All time</small></div></div>
+    <div className="stats3"><div data-testid="leader-earn-week"><b>{rs(e1.commission)}</b><small>{batch.length ? 'Last batch (5%)' : 'This week (5%)'}</small></div><div><b>{e1.delivered}</b><small>Handed</small></div><div data-testid="leader-earn-all"><b>{rs(e2.commission)}</b><small>All time</small></div></div>
     {drop && <div className="card" data-testid="leader-drop"><Kv k={drop.title} v={drop.status.replace('_', ' ')} /><Kv k="Slot" v={drop.slot} /><DropCode id={drop.id} /></div>}
     <Err e={err} />
-    <h3 className="sec">Households ({wk.length})</h3>
-    {!wk.length ? <Empty emoji="🏠" title="No baskets yet this week" body="Share the join link on your apartment WhatsApp group." /> : [...wk].sort((a, b) => a.flat.localeCompare(b.flat)).map(o => <div key={o.id} className="card" data-testid={'lb-' + o.id}>
+    {batch.length > 0 && <><h3 className="sec">Hand over at the gate ({batch.filter(o => o.handoverStatus === 'pending').length} left)</h3>{[...batch].sort((a, b) => a.flat.localeCompare(b.flat)).map(o => <LeaderRow key={o.id} o={o} setErr={setErr} />)}</>}
+    <h3 className="sec">Households this week ({wk.length})</h3>
+    {!wk.length ? <Empty emoji="🏠" title="No baskets yet this week" body="Share the join link on your apartment WhatsApp group." /> : [...wk].sort((a, b) => a.flat.localeCompare(b.flat)).map(o => <LeaderRow key={o.id} o={o} setErr={setErr} />)}
+  </div>;
+}
+const LeaderRow = ({ o, setErr }) => <div className="card" data-testid={'lb-' + o.id}>
       <div className="kv"><b>{o.flat} · {o.customer}</b><span className="tag6">{o.handoverStatus === 'handed' ? '✓ ' + o.collectedVia : o.handoverStatus === 'missed' ? 'Missed' : o.status}</span></div>
       <small className="muted">{o.lines.map(l => `${l.name} ${l.qty}${l.unit}`).join(' · ')}</small><Kv b k={o.amountDue != null ? 'Collect' : 'Max (Sunday)'} v={rs(o.amountDue ?? o.sundayTotal)} />
       {o.status === 'locked' && o.handoverStatus === 'pending' && <div className="seg" style={{ display: 'flex' }}>{[['cash', '💵 Cash'], ['upi', '📱 UPI'], ['missed', 'Missed']].map(([k, n]) => <button key={k} style={{ flex: 1 }} data-testid={`hand-${k}-${o.id}`} onClick={() => models.markHanded(o, k).catch(e => setErr(e.message))}>{n}</button>)}</div>}
-    </div>)}
-  </div>;
-}
+    </div>;
 const DropCode = ({ id }) => { const c = useSub(cb => models.watchDropCode(id, cb), [id]); return <Code label="Give this code to the rider when the crates arrive" code={c} testid="leader-drop-code" />; };
 
 /* ---------------- OFFICE LUNCH ---------------- */
