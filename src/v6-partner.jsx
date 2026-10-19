@@ -44,6 +44,7 @@ function useStoreDoc(id) { const [d, setD] = useState(undefined); useEffect(() =
 export function VendorDealsW({ storeId }) {
   const now = useNow(15000); const store = ALL_STORES.find(s => s.id === storeId); const sd = useStoreDoc(storeId); const cfg = useSub(cb => models.watchDealsCfg(cb), []);
   const cap = useSub(cb => models.watchCap(storeId, cb), [storeId], { deals: 0, units: 0 }); const deals = useSub(cb => models.watchStoreDeals(storeId, cb), [storeId]); const claims = useSub(cb => models.watchStoreClaims(storeId, cb), [storeId], []);
+  const [hErr, setHErr] = useState({}); // survives the remount caused by a rejected (optimistic) hand-over write
   const [text, setText] = useState(''); const [draft, setDraft] = useState(null); const [msg, setMsg] = useState(''); const [lang, setLang] = useState('ta-IN'); const [rec, setRec] = useState(false); const recRef = useRef(null);
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!sd || !deals) return <div className="page v6"><Sk /></div>;
@@ -68,7 +69,7 @@ export function VendorDealsW({ storeId }) {
     {msg && !draft && msg.includes('live') && <div className="okbar" data-testid="deal-published">✅ {msg}</div>}
     <h3 className="sec">Live now ({live.length})</h3>{!live.length ? <p className="muted">No live deals.</p> : live.map(d => <div key={d.id} className="card" data-testid={'vd-' + d.id}><Kv k={`${d.emoji || ''} ${d.item} · ${rs(d.dealPrice)} (${d.discountPct}% off)`} v={`${d.qtyLeft}/${d.qtyTotal} left`} />
       <small className="muted">Ends in {fmtLeft(d.expiresAtMs - now)} · {d.fulfil === 'both' ? 'pickup + delivery' : 'pickup only'}</small><button className="ghost" onClick={() => models.removeDeal(d.id)}>Stop this deal</button></div>)}
-    <h3 className="sec">Pickups to hand over ({open.length})</h3>{!open.length ? <p className="muted">Nobody waiting.</p> : open.map(c => <Handover key={c.id} c={c} now={now} />)}
+    <h3 className="sec">Pickups to hand over ({open.length})</h3>{!open.length ? <p className="muted">Nobody waiting.</p> : open.map(c => <Handover key={c.id} c={c} now={now} err={hErr[c.id] || ''} setErr={m => setHErr(x => ({ ...x, [c.id]: m }))} />)}
   </div>;
 }
 function ConfirmDeal({ draft, cat, cap, blocked, store, sd, transcript, done, back }) {
@@ -90,12 +91,12 @@ function ConfirmDeal({ draft, cat, cap, blocked, store, sd, transcript, done, ba
     {v && <div data-testid="deal-checks">{v.errors.map(e => <p key={e} className="err small">✕ {e}</p>)}{v.warnings.map(w => <p key={w} className="small" style={{ color: '#9A3412' }}>! {w}</p>)}{v.ok && <p className="ok small"><b>✓ {v.pct}% off · within tonight's limits</b></p>}</div>}
     <Err e={err} /><button className="primary y" data-testid="deal-publish" disabled={busy || !p || !v?.ok || !!blocked} onClick={publish}>{busy ? 'Publishing…' : 'Confirm & go live'}</button><button className="ghost" onClick={back}>← Back</button></div>;
 }
-function Handover({ c, now }) {
-  const [code, setCode] = useState(''); const [via, setVia] = useState('upi'); const [err, setErr] = useState('');
+function Handover({ c, now, err, setErr }) {
+  const [code, setCode] = useState(''); const [via, setVia] = useState('upi');
   if (c.fulfil === 'delivery') return <div className="card"><Kv k={`🛵 ${c.item} × ${c.qty} · ${c.customer}`} v={c.rider ? 'rider ' + c.rider : 'awaiting rider'} /><small className="muted">Pack it — the batched run picks up at {DEALS.runs.join(' / ')}.</small></div>;
   return <div className="card" data-testid={'vc-' + c.id}><Kv k={`${c.item} × ${c.qty} · ${c.customer}`} v={rs(c.total)} /><small className="muted">Collect before {fmtTime(c.expiresAtMs)}</small>
     <Field label="Pickup code" value={code} set={v => setCode(v.replace(/\D/g, ''))} testid="vc-code" inputMode="numeric" maxLength={4} /><div style={{ marginTop: 6 }}><Seg value={via} set={setVia} opts={[['upi', '📱 UPI'], ['cash', '💵 Cash']]} /></div><Err e={err} />
-    <button className="primary" style={{ background: 'var(--green)' }} data-testid="vc-handover" disabled={code.length !== 4} onClick={() => models.claimHandover(c.id, code, 'picked_up', via).catch(() => setErr('Wrong code — ask the customer to show the code in their app.'))}>Handed over</button>
+    <button className="primary" style={{ background: 'var(--green)' }} data-testid="vc-handover" disabled={code.length !== 4} onClick={() => { setErr(''); models.claimHandover(c.id, code, 'picked_up', via).catch(() => setErr('Wrong code — ask the customer to show the code in their app.')); }}>Handed over</button>
     {now > c.expiresAtMs && <button className="ghost" onClick={() => models.claimNoShow(c.id).catch(e => setErr(e.message))}>No-show</button>}</div>;
 }
 /* ---- apply as cook / pro ---- */
